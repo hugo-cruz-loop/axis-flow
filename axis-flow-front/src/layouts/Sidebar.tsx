@@ -8,6 +8,7 @@ import {
   HelpCircle,
   LogOut,
   Zap,
+  Key,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/lib/utils'
@@ -36,6 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Users', icon: Users, to: '/dashboard/users' },
       { label: 'Roles', icon: Shield, to: '/dashboard/roles' },
+      { label: 'Permissions', icon: Key, to: '/dashboard/permissions' },
     ],
   },
   {

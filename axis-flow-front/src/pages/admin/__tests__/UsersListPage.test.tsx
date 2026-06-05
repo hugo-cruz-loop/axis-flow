@@ -38,6 +38,7 @@ describe('UsersListPage', () => {
         first_name: 'Alice',
         last_name: 'Smith',
         role: 'CLIENTE',
+        permissions: [],
         status: 'ACTIVE',
       },
     ])

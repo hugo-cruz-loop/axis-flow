@@ -114,6 +114,15 @@ func (s *AuthService) Login(
 	return pair, nil
 }
 
+// GetPermissionCodes returns all permission codes assigned to the user's roles.
+func (s *AuthService) GetPermissionCodes(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	codes, err := s.users.ListPermissionCodes(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get permission codes: %w", err)
+	}
+	return codes, nil
+}
+
 // RefreshToken validates a refresh token and returns a new token pair.
 func (s *AuthService) RefreshToken(ctx context.Context, rawRefreshToken string) (TokenPair, error) {
 	hash := hashToken(rawRefreshToken)

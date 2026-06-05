@@ -8,6 +8,7 @@ import { CreateUserPage } from '@/pages/admin/CreateUserPage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { AnalyticsPage } from '@/pages/dashboard/AnalyticsPage'
 import { RolesPage } from '@/pages/dashboard/RolesPage'
+import { PermissionsPage } from '@/pages/dashboard/PermissionsPage'
 import { SettingsPage } from '@/pages/dashboard/SettingsPage'
 import { HelpPage } from '@/pages/dashboard/HelpPage'
 import { UsersPage } from '@/pages/dashboard/users/UsersPage'
@@ -72,6 +73,16 @@ function App() {
           <ProtectedRoute>
             <RoleGate allowedRoles={[...ADMIN_ROLES]}>
               <RolesPage />
+            </RoleGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/permissions"
+        element={
+          <ProtectedRoute>
+            <RoleGate allowedRoles={[...ADMIN_ROLES]}>
+              <PermissionsPage />
             </RoleGate>
           </ProtectedRoute>
         }

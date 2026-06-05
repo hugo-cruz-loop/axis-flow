@@ -43,6 +43,13 @@ var (
 	ErrInvalidStatus = errors.New("invalid user status")
 	// ErrUserNotActive is returned when a login is attempted on a non-active account.
 	ErrUserNotActive = errors.New("user account is not active")
+
+	// RBAC sentinel errors.
+	ErrSystemRole      = errors.New("cannot modify or delete a system role")
+	ErrRoleHasUsers    = errors.New("cannot delete role: users are assigned to it")
+	ErrPermissionInUse = errors.New("cannot delete permission: assigned to one or more roles")
+	ErrDuplicateCode   = errors.New("code already exists")
+	ErrNotFound        = errors.New("not found")
 )
 
 // ValidStatuses contains every accepted UserStatus value.
@@ -129,6 +136,27 @@ type Permission struct {
 	Name        string
 	Module      string
 	Description string
+}
+
+// RoleWithCount wraps a Role with its assigned permission count.
+type RoleWithCount struct {
+	Role
+	PermissionCount int
+}
+
+// RoleFilter holds optional filters for paginated role listing.
+type RoleFilter struct {
+	Scope    string // "GLOBAL" | "TENANT" | "" (all)
+	IsSystem *bool
+	Page     int
+	PageSize int
+}
+
+// PermissionFilter holds optional filters for paginated permission listing.
+type PermissionFilter struct {
+	Module   string
+	Page     int
+	PageSize int
 }
 
 // AuditEntry records an action performed by or on a user.

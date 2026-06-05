@@ -51,6 +51,13 @@ func (m *mockUserRepo) UpdatePasswordHash(ctx context.Context, id uuid.UUID, has
 func (m *mockUserRepo) FindPrimaryRoleCode(_ context.Context, _ uuid.UUID) (string, error) {
 	return "ADMIN_CHECK_ON", nil
 }
+func (m *mockUserRepo) ListPermissionCodes(ctx context.Context, id uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, id)
+	if v := args.Get(0); v != nil {
+		return v.([]string), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
 
 type mockSessionRepo struct{ mock.Mock }
 

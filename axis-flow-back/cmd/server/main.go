@@ -222,7 +222,7 @@ func main() {
 	})
 
 	// Role management routes (admin only)
-	roleRepo := repository.NewPgxRoleRepository(dbPool)
+	roleRepo := repository.NewPgxRoleRepository(dbPool, redisClient)
 	roleHandler := handler.NewRoleHandler(roleRepo)
 
 	r.Route("/api/roles", func(r chi.Router) {
@@ -230,6 +230,45 @@ func main() {
 		r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
 		r.Get("/", roleHandler.ListRoles)
 		r.Get("/{code}/permissions", roleHandler.ListPermissions)
+	})
+
+	// RBAC CRUD v1 routes
+	permissionRepo := repository.NewPgxPermissionRepository(dbPool)
+	userRoleRepo := repository.NewPgxUserRoleRepository(dbPool, redisClient)
+	permissionHandler := handler.NewPermissionHandler(permissionRepo, auditRepo)
+	userRoleHandler := handler.NewUserRoleHandler(userRoleRepo, auditRepo)
+	roleHandlerV1 := handler.NewRoleHandlerV1(roleRepo, auditRepo)
+
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(middleware.JWTAuth(authSvc))
+		r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+
+		r.Route("/roles", func(r chi.Router) {
+			r.Get("/", roleHandlerV1.ListRoles)
+			r.Post("/", roleHandlerV1.CreateRole)
+			r.Put("/{id}", roleHandlerV1.UpdateRole)
+			r.Delete("/{id}", roleHandlerV1.DeleteRole)
+			r.Get("/{id}/permissions", roleHandlerV1.ListPermissionsByRoleID)
+			r.Post("/{id}/permissions", roleHandlerV1.AssignPermissionToRole)
+			r.Delete("/{id}/permissions/{permission_id}", roleHandlerV1.RevokePermissionFromRole)
+		})
+
+		r.Route("/permissions", func(r chi.Router) {
+			r.Get("/", permissionHandler.ListPermissions)
+
+			// Permission catalog mutations are restricted to ADMIN_CHECK_ON only.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRoles("ADMIN_CHECK_ON"))
+				r.Post("/", permissionHandler.CreatePermission)
+				r.Put("/{id}", permissionHandler.UpdatePermission)
+				r.Delete("/{id}", permissionHandler.DeletePermission)
+			})
+		})
+
+		r.Route("/users", func(r chi.Router) {
+			r.Post("/{id}/roles", userRoleHandler.AssignRole)
+			r.Delete("/{id}/roles/{role_id}", userRoleHandler.RevokeRole)
+		})
 	})
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────

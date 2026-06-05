@@ -83,6 +83,7 @@ describe('LoginPage', () => {
       first_name: 'John',
       last_name: 'Doe',
       role: 'CLIENTE',
+      permissions: ['roles:update'],
       status: 'ACTIVE',
     })
 

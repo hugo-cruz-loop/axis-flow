@@ -29,6 +29,7 @@ type AuthServicer interface {
 	Login(ctx context.Context, email, password, deviceType, deviceID, ipAddress string) (service.TokenPair, error)
 	RefreshToken(ctx context.Context, rawRefreshToken string) (service.TokenPair, error)
 	GetProfile(ctx context.Context, userID uuid.UUID) (*domain.User, error)
+	GetPermissionCodes(ctx context.Context, userID uuid.UUID) ([]string, error)
 }
 
 // AuthHandler handles HTTP endpoints for authentication.
@@ -146,18 +147,25 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	// Role is embedded in the JWT by issueTokenPair and injected into context
 	// by the JWTAuth middleware — no extra DB query needed here.
 	role, _ := middleware.RoleFromContext(r.Context())
+	permissions, err := h.svc.GetPermissionCodes(r.Context(), userID)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "me permissions error", slog.String("error", err.Error()))
+		writeError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":         user.ID,
-		"tenant_id":  user.TenantID,
-		"email":      user.Email,
-		"first_name": user.FirstName,
-		"last_name":  user.LastName,
-		"phone":      user.Phone,
-		"role":       role,
-		"status":     user.Status,
-		"created_at": user.CreatedAt,
-		"updated_at": user.UpdatedAt,
+		"id":          user.ID,
+		"tenant_id":   user.TenantID,
+		"email":       user.Email,
+		"first_name":  user.FirstName,
+		"last_name":   user.LastName,
+		"phone":       user.Phone,
+		"role":        role,
+		"permissions": permissions,
+		"status":      user.Status,
+		"created_at":  user.CreatedAt,
+		"updated_at":  user.UpdatedAt,
 	})
 }
 

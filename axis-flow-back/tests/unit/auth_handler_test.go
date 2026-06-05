@@ -38,6 +38,13 @@ func (m *mockAuthService) GetProfile(ctx context.Context, userID uuid.UUID) (*do
 	}
 	return nil, args.Error(1)
 }
+func (m *mockAuthService) GetPermissionCodes(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, userID)
+	if v := args.Get(0); v != nil {
+		return v.([]string), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
@@ -133,6 +140,7 @@ func TestGetMe_WithValidJWT_Returns200(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 	svc.On("GetProfile", mock.Anything, userID).Return(u, nil)
+	svc.On("GetPermissionCodes", mock.Anything, userID).Return([]string{"roles:update"}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me/", nil)
 	// Inject user ID into context as the middleware would

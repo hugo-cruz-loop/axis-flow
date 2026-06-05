@@ -79,6 +79,7 @@ describe('authClient.me', () => {
       first_name: 'John',
       last_name: 'Doe',
       role: 'CLIENTE',
+      permissions: ['roles:update'],
       status: 'ACTIVE',
     }
     mockGet.mockResolvedValueOnce({ data: mockUser })
@@ -96,6 +97,7 @@ describe('authClient.me', () => {
       first_name: 'John',
       last_name: 'Doe',
       role: 'CLIENTE',
+      permissions: ['roles:update'],
       status: 'ACTIVE',
     }
     mockGet.mockResolvedValueOnce({ data: mockUser })

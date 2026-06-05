@@ -72,6 +72,36 @@ func (r *PgxUserRepository) FindPrimaryRoleCode(ctx context.Context, id uuid.UUI
 	return code, nil
 }
 
+// ListPermissionCodes returns all permission codes assigned to the user's roles.
+func (r *PgxUserRepository) ListPermissionCodes(ctx context.Context, id uuid.UUID) ([]string, error) {
+	const q = `
+		SELECT DISTINCT p.code
+		FROM users.identity_permissions p
+		JOIN users.identity_role_permissions rp ON rp.permission_id = p.id
+		JOIN users.identity_user_roles ur ON ur.role_id = rp.role_id
+		WHERE ur.user_id = $1
+		ORDER BY p.code ASC`
+
+	rows, err := r.pool.Query(ctx, q, id)
+	if err != nil {
+		return nil, fmt.Errorf("user_repository.ListPermissionCodes: %w", err)
+	}
+	defer rows.Close()
+
+	codes := []string{}
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, fmt.Errorf("user_repository.ListPermissionCodes scan: %w", err)
+		}
+		codes = append(codes, code)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("user_repository.ListPermissionCodes rows: %w", err)
+	}
+	return codes, nil
+}
+
 // UpdateStatus changes the status of the given user.
 func (r *PgxUserRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error {
 	const q = `UPDATE users.identity_users SET status = $1, updated_at = NOW() WHERE id = $2`

@@ -47,6 +47,7 @@ describe('CreateUserPage', () => {
       first_name: 'New',
       last_name: 'User',
       role: 'CLIENTE',
+      permissions: [],
       status: 'PENDING_ACTIVATION',
     })
 

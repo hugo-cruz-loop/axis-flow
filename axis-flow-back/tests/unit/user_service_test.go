@@ -50,6 +50,13 @@ func (m *mockExtendedUserRepo) ResetFailedAttempts(ctx context.Context, id uuid.
 func (m *mockExtendedUserRepo) FindPrimaryRoleCode(_ context.Context, _ uuid.UUID) (string, error) {
 	return "ADMIN_CHECK_ON", nil
 }
+func (m *mockExtendedUserRepo) ListPermissionCodes(ctx context.Context, id uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, id)
+	if v := args.Get(0); v != nil {
+		return v.([]string), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
 func (m *mockExtendedUserRepo) CreateUser(ctx context.Context, u *domain.User) error {
 	return m.Called(ctx, u).Error(0)
 }
