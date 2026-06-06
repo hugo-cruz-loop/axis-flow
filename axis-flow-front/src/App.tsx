@@ -15,6 +15,7 @@ import { UsersPage } from '@/pages/dashboard/users/UsersPage'
 import { DashboardCreateUserPage } from '@/pages/dashboard/users/CreateUserPage'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { RoleGate } from '@/components/RoleGate'
+import { CatalogosDashboard } from '@/pages/dashboard/CatalogosDashboard'
 
 // Role codes as stored in identity_roles.code and embedded in the JWT.
 const ADMIN_ROLES = ['ADMIN_CHECK_ON', 'ADMINISTRADOR'] as const
@@ -83,6 +84,16 @@ function App() {
           <ProtectedRoute>
             <RoleGate allowedRoles={[...ADMIN_ROLES]}>
               <PermissionsPage />
+            </RoleGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/catalogos"
+        element={
+          <ProtectedRoute>
+            <RoleGate allowedRoles={[...ADMIN_ROLES]}>
+              <CatalogosDashboard />
             </RoleGate>
           </ProtectedRoute>
         }

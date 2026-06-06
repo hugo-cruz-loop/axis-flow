@@ -11,13 +11,16 @@ import (
 	"syscall"
 	"time"
 
+	"axis-flow-back/internal/catalogos/repository"
 	"axis-flow-back/internal/config"
 	"axis-flow-back/internal/handler"
 	"axis-flow-back/internal/logging"
 	"axis-flow-back/internal/middleware"
-	"axis-flow-back/internal/repository"
+	stdrepository "axis-flow-back/internal/repository"
 	"axis-flow-back/internal/service"
 	"axis-flow-back/internal/telemetry"
+
+	catalogoshandler "axis-flow-back/internal/catalogos/handler"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -104,10 +107,10 @@ func main() {
 	slog.Info("redis connected")
 
 	// ── Repositories ──────────────────────────────────────────────────────────
-	userRepo := repository.NewPgxUserRepository(dbPool)
-	sessionRepo := repository.NewPgxSessionRepository(dbPool)
-	tokenRepo := repository.NewPgxTokenRepository(dbPool)
-	auditRepo := repository.NewPgxAuditRepository(dbPool)
+	userRepo := stdrepository.NewPgxUserRepository(dbPool)
+	sessionRepo := stdrepository.NewPgxSessionRepository(dbPool)
+	tokenRepo := stdrepository.NewPgxTokenRepository(dbPool)
+	auditRepo := stdrepository.NewPgxAuditRepository(dbPool)
 
 	// ── Services ──────────────────────────────────────────────────────────────
 	authSvc := service.NewAuthService(
@@ -222,7 +225,7 @@ func main() {
 	})
 
 	// Role management routes (admin only)
-	roleRepo := repository.NewPgxRoleRepository(dbPool, redisClient)
+	roleRepo := stdrepository.NewPgxRoleRepository(dbPool, redisClient)
 	roleHandler := handler.NewRoleHandler(roleRepo)
 
 	r.Route("/api/roles", func(r chi.Router) {
@@ -233,8 +236,8 @@ func main() {
 	})
 
 	// RBAC CRUD v1 routes
-	permissionRepo := repository.NewPgxPermissionRepository(dbPool)
-	userRoleRepo := repository.NewPgxUserRoleRepository(dbPool, redisClient)
+	permissionRepo := stdrepository.NewPgxPermissionRepository(dbPool)
+	userRoleRepo := stdrepository.NewPgxUserRoleRepository(dbPool, redisClient)
 	permissionHandler := handler.NewPermissionHandler(permissionRepo, auditRepo)
 	userRoleHandler := handler.NewUserRoleHandler(userRoleRepo, auditRepo)
 	roleHandlerV1 := handler.NewRoleHandlerV1(roleRepo, auditRepo)
@@ -268,6 +271,183 @@ func main() {
 		r.Route("/users", func(r chi.Router) {
 			r.Post("/{id}/roles", userRoleHandler.AssignRole)
 			r.Delete("/{id}/roles/{role_id}", userRoleHandler.RevokeRole)
+		})
+	})
+
+	// ── Catalogos module — catalog/master data ─────────────────────────────────
+	countryRepo := repository.NewCountryRepo(dbPool)
+	stateRepo := repository.NewStateRepo(dbPool)
+	cityRepo := repository.NewCityRepo(dbPool)
+	localityTypeRepo := repository.NewLocalityTypeRepo(dbPool)
+	bankRepo := repository.NewBankRepo(dbPool)
+	taxRegimeRepo := repository.NewTaxRegimeRepo(dbPool)
+	paymentFormRepo := repository.NewPaymentFormRepo(dbPool)
+	paymentConditionRepo := repository.NewPaymentConditionRepo(dbPool)
+	workflowStatusRepo := repository.NewWorkflowStatusRepo(dbPool)
+	complaintTypeRepo := repository.NewComplaintTypeRepo(dbPool)
+	serviceRepo := repository.NewServiceRepo(dbPool)
+	subscriptionPlanRepo := repository.NewSubscriptionPlanRepo(dbPool)
+	datePeriodicityRepo := repository.NewDatePeriodicityRepo(dbPool)
+	hrAbsenceTypeRepo := repository.NewHrAbsenceTypeRepo(dbPool)
+	jobCategoryRepo := repository.NewJobCategoryRepo(dbPool)
+	jobTypeRepo := repository.NewJobTypeRepo(dbPool)
+
+	geoHandler := catalogoshandler.NewGeographyHandler(countryRepo, stateRepo, cityRepo, localityTypeRepo, redisClient)
+	financialHandler := catalogoshandler.NewFinancialHandler(bankRepo, taxRegimeRepo, paymentFormRepo, paymentConditionRepo, redisClient)
+	operationalHandler := catalogoshandler.NewOperationalHandler(workflowStatusRepo, complaintTypeRepo, serviceRepo, subscriptionPlanRepo, datePeriodicityRepo, redisClient)
+	hrHandler := catalogoshandler.NewHRHandler(jobCategoryRepo, jobTypeRepo, hrAbsenceTypeRepo, redisClient)
+
+	// Geography — public GET, admin mutations
+	r.Route("/api/v1/pais", func(r chi.Router) {
+		r.Get("/", geoHandler.ListCountries)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", geoHandler.CreateCountry)
+			r.Put("/{id}", geoHandler.UpdateCountry)
+			r.Delete("/{id}", geoHandler.DeleteCountry)
+		})
+	})
+	r.Route("/api/v1/estado", func(r chi.Router) {
+		r.Get("/", geoHandler.ListStates)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", geoHandler.CreateState)
+			r.Put("/{id}", geoHandler.UpdateState)
+			r.Delete("/{id}", geoHandler.DeleteState)
+		})
+	})
+	r.Route("/api/v1/ciudad", func(r chi.Router) {
+		r.Get("/", geoHandler.ListCities)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", geoHandler.CreateCity)
+			r.Put("/{id}", geoHandler.UpdateCity)
+			r.Delete("/{id}", geoHandler.DeleteCity)
+		})
+	})
+	r.Get("/api/v1/ciudad/byedo/{estadoId}", geoHandler.ListCitiesByState)
+	r.Route("/api/v1/tipo_localidad", func(r chi.Router) {
+		r.Get("/", geoHandler.ListLocalityTypes)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", geoHandler.CreateLocalityType)
+		})
+	})
+
+	// Financial
+	r.Route("/api/v1/bancos", func(r chi.Router) {
+		r.Get("/", financialHandler.ListBanks)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", financialHandler.CreateBank)
+			r.Put("/{id}", financialHandler.UpdateBank)
+			r.Delete("/{id}", financialHandler.DeleteBank)
+		})
+	})
+	r.Route("/api/v1/regimen_fiscal", func(r chi.Router) {
+		r.Get("/", financialHandler.ListTaxRegimes)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", financialHandler.CreateTaxRegime)
+			r.Put("/{id}", financialHandler.UpdateTaxRegime)
+			r.Delete("/{id}", financialHandler.DeleteTaxRegime)
+		})
+	})
+	r.Route("/api/v1/forma_pago", func(r chi.Router) {
+		r.Get("/", financialHandler.ListPaymentForms)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", financialHandler.CreatePaymentForm)
+			r.Put("/{id}", financialHandler.UpdatePaymentForm)
+			r.Delete("/{id}", financialHandler.DeletePaymentForm)
+		})
+	})
+	r.Route("/api/v1/condiciones_pago", func(r chi.Router) {
+		r.Get("/", financialHandler.ListPaymentConditions)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", financialHandler.CreatePaymentCondition)
+			r.Put("/{id}", financialHandler.UpdatePaymentCondition)
+			r.Delete("/{id}", financialHandler.DeletePaymentCondition)
+		})
+	})
+
+	// Operational
+	r.Route("/api/v1/status", func(r chi.Router) {
+		r.Get("/", operationalHandler.ListWorkflowStatuses)
+		r.Get("/filterStatus/{rol}", operationalHandler.FilterStatusByRole)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", operationalHandler.CreateWorkflowStatus)
+			r.Put("/{id}", operationalHandler.UpdateWorkflowStatus)
+			r.Delete("/{id}", operationalHandler.DeleteWorkflowStatus)
+		})
+	})
+	r.Route("/api/v1/tipo_queja", func(r chi.Router) {
+		r.Get("/", operationalHandler.ListComplaintTypes)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", operationalHandler.CreateComplaintType)
+		})
+	})
+	r.Route("/api/v1/cataServicio", func(r chi.Router) {
+		r.Get("/", operationalHandler.ListServices)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", operationalHandler.CreateService)
+		})
+	})
+	r.Route("/api/v1/planes", func(r chi.Router) {
+		r.Get("/", operationalHandler.ListSubscriptionPlans)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", operationalHandler.CreateSubscriptionPlan)
+		})
+	})
+	r.Route("/api/v1/periodicidadFecha", func(r chi.Router) {
+		r.Get("/", operationalHandler.ListDatePeriodicities)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", operationalHandler.CreateDatePeriodicity)
+		})
+	})
+
+	// HR
+	r.Route("/api/v1/catalogoCategoriaBT", func(r chi.Router) {
+		r.Get("/", hrHandler.ListJobCategories)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", hrHandler.CreateJobCategory)
+		})
+	})
+	r.Route("/api/v1/catalogoTipoBT", func(r chi.Router) {
+		r.Get("/", hrHandler.ListJobTypes)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", hrHandler.CreateJobType)
+		})
+	})
+	r.Route("/api/v1/cataTipo_inasistencia", func(r chi.Router) {
+		r.Get("/", hrHandler.ListHrAbsenceTypes)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.JWTAuth(authSvc))
+			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
+			r.Post("/", hrHandler.CreateHrAbsenceType)
 		})
 	})
 
