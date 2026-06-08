@@ -16,6 +16,7 @@ import { DashboardCreateUserPage } from '@/pages/dashboard/users/CreateUserPage'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { RoleGate } from '@/components/RoleGate'
 import { CatalogosDashboard } from '@/pages/dashboard/CatalogosDashboard'
+import { EmpresaDashboard } from '@/pages/dashboard/empresa/EmpresaDashboard'
 
 // Role codes as stored in identity_roles.code and embedded in the JWT.
 const ADMIN_ROLES = ['ADMIN_CHECK_ON', 'ADMINISTRADOR'] as const
@@ -113,6 +114,19 @@ function App() {
             <HelpPage />
           </ProtectedRoute>
         }
+      />
+
+      <Route
+        path="/dashboard/empresa/:id"
+        element={
+          <ProtectedRoute>
+            <EmpresaDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/empresa"
+        element={<Navigate to="/dashboard" replace />}
       />
 
       {/* Legacy routes — kept for backward compatibility */}

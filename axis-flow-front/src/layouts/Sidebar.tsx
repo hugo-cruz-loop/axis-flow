@@ -10,6 +10,7 @@ import {
   Zap,
   Key,
   Database,
+  Building2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/lib/utils'
@@ -40,6 +41,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Roles', icon: Shield, to: '/dashboard/roles' },
       { label: 'Permissions', icon: Key, to: '/dashboard/permissions' },
       { label: 'Catalogs', icon: Database, to: '/dashboard/catalogos' },
+      { label: 'Mi Empresa', icon: Building2, to: '/dashboard/empresa/1' },
     ],
   },
   {

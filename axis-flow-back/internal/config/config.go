@@ -19,6 +19,7 @@ type Config struct {
 	JWT           JWTConfig
 	Redis         RedisConfig
 	Feature       FeatureConfig
+	Stripe        StripeConfig
 	Observability ObservabilityConfig
 }
 
@@ -53,6 +54,13 @@ type RedisConfig struct {
 // FeatureConfig holds feature-flag settings.
 type FeatureConfig struct {
 	DeleteAllData bool
+}
+
+// StripeConfig holds Stripe payment integration settings.
+type StripeConfig struct {
+	SecretKey     string // STRIPE_SECRET_KEY, required when StripeEnabled=true
+	WebhookSecret string // STRIPE_WEBHOOK_SECRET, required when StripeEnabled=true
+	Enabled       bool   // STRIPE_ENABLED default false (allows dev without Stripe)
 }
 
 // ObservabilityConfig holds telemetry and observability settings.
@@ -165,6 +173,22 @@ func Load() (*Config, error) {
 			}(),
 			SentryDSN: os.Getenv("SENTRY_DSN"),
 		},
+	}
+
+	// Stripe config
+	stripeEnabled := os.Getenv("STRIPE_ENABLED") == "true"
+	cfg.Stripe = StripeConfig{
+		Enabled:       stripeEnabled,
+		SecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
+		WebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
+	}
+	if stripeEnabled {
+		if cfg.Stripe.SecretKey == "" {
+			errs = append(errs, "STRIPE_SECRET_KEY is required when STRIPE_ENABLED=true")
+		}
+		if cfg.Stripe.WebhookSecret == "" {
+			errs = append(errs, "STRIPE_WEBHOOK_SECRET is required when STRIPE_ENABLED=true")
+		}
 	}
 
 	if len(errs) > 0 {

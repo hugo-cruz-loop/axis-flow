@@ -21,6 +21,9 @@ import (
 	"axis-flow-back/internal/telemetry"
 
 	catalogoshandler "axis-flow-back/internal/catalogos/handler"
+	empresashdl "axis-flow-back/internal/empresas/handler"
+	empresasrepo "axis-flow-back/internal/empresas/repository"
+	empresassvc "axis-flow-back/internal/empresas/service"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -449,6 +452,50 @@ func main() {
 			r.Use(middleware.RequireRoles("ADMIN_CHECK_ON", "ADMINISTRADOR"))
 			r.Post("/", hrHandler.CreateHrAbsenceType)
 		})
+	})
+
+	// ── Empresas module ───────────────────────────────────────────────────────
+	empresaRepo := empresasrepo.NewPgxEmpresaRepository(dbPool)
+	pagoRepo := empresasrepo.NewPgxPagoRepository(dbPool)
+	datosFiscalesRepo := empresasrepo.NewPgxDatosFiscalesRepository(dbPool)
+	apoderadoRepo := empresasrepo.NewPgxApoderadoRepository(dbPool)
+	servicioRepo := empresasrepo.NewPgxServicioRepository(dbPool)
+
+	onboardingSvc := empresassvc.NewOnboardingService(empresaRepo, pagoRepo, userRepo)
+	stripeSvc := empresassvc.NewStripeService(
+		cfg.Stripe.SecretKey,
+		cfg.Stripe.WebhookSecret,
+		cfg.Stripe.Enabled,
+		empresaRepo,
+		pagoRepo,
+	)
+	empresaSvc := empresassvc.NewEmpresaService(empresaRepo, redisClient)
+
+	publicEmpresaHandler := empresashdl.NewPublicHandler(onboardingSvc, stripeSvc)
+	protectedEmpresaHandler := empresashdl.NewProtectedHandler(empresaSvc, datosFiscalesRepo, apoderadoRepo, servicioRepo)
+
+	// Public empresa routes (no auth)
+	r.Post("/api/v1/empresa/alta", publicEmpresaHandler.Alta)
+	r.Post("/api/v1/empresa/checkout", publicEmpresaHandler.Checkout)
+	r.Post("/api/v1/empresa/webhook", publicEmpresaHandler.Webhook)
+
+	// Protected empresa routes (JWT required)
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.JWTAuth(authSvc))
+		r.Get("/api/v1/empresa/{id}", protectedEmpresaHandler.GetEmpresa)
+		r.Put("/api/v1/empresa/{id}", protectedEmpresaHandler.UpdateEmpresa)
+		r.Delete("/api/v1/empresa/{id}", protectedEmpresaHandler.DeleteEmpresa)
+		r.Get("/api/v1/empresa/{id}/fiscal", protectedEmpresaHandler.GetFiscal)
+		r.Post("/api/v1/empresa/{id}/fiscal", protectedEmpresaHandler.CreateFiscal)
+		r.Put("/api/v1/empresa/{id}/fiscal", protectedEmpresaHandler.UpdateFiscal)
+		r.Get("/api/v1/empresa/{id}/apoderados", protectedEmpresaHandler.ListApoderados)
+		r.Post("/api/v1/empresa/{id}/apoderados", protectedEmpresaHandler.CreateApoderado)
+		r.Put("/api/v1/empresa/{id}/apoderados/{apoderado_id}", protectedEmpresaHandler.UpdateApoderado)
+		r.Delete("/api/v1/empresa/{id}/apoderados/{apoderado_id}", protectedEmpresaHandler.DeleteApoderado)
+		r.Get("/api/v1/empresa/{id}/servicios", protectedEmpresaHandler.ListServicios)
+		r.Post("/api/v1/empresa/{id}/servicios", protectedEmpresaHandler.CreateServicio)
+		r.Put("/api/v1/empresa/{id}/servicios/{servicio_id}", protectedEmpresaHandler.UpdateServicio)
+		r.Delete("/api/v1/empresa/{id}/servicios/{servicio_id}", protectedEmpresaHandler.DeleteServicio)
 	})
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
