@@ -1,0 +1,57 @@
+// Package middleware provides HTTP middleware for the identity service.
+package middleware
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	"axis-flow-back/internal/service"
+)
+
+type contextKey string
+
+// ContextKeyUserID is the key used to store the authenticated user ID in request context.
+const ContextKeyUserID contextKey = "userID"
+
+// ContextKeyTenantID is the key used to store the authenticated tenant ID in request context.
+const ContextKeyTenantID contextKey = "tenantID"
+
+// ContextKeyEmail is the key used to store the authenticated user email in request context.
+const ContextKeyEmail contextKey = "email"
+
+// JWTAuth returns a middleware that validates the Authorization: Bearer <token> header.
+// On success, it injects the user ID and tenant ID into the request context.
+// On failure, it responds with 401 Unauthorized.
+func JWTAuth(authSvc *service.AuthService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			header := r.Header.Get("Authorization")
+			if header == "" || !strings.HasPrefix(header, "Bearer ") {
+				http.Error(w, "missing or malformed authorization header", http.StatusUnauthorized)
+				return
+			}
+
+			tokenStr := strings.TrimPrefix(header, "Bearer ")
+			claims, err := authSvc.ParseAccessToken(tokenStr)
+			if err != nil {
+				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), ContextKeyUserID, claims.UserID)
+			ctx = context.WithValue(ctx, ContextKeyTenantID, claims.TenantID)
+			ctx = context.WithValue(ctx, ContextKeyEmail, claims.Email)
+			ctx = context.WithValue(ctx, ContextKeyRole, claims.Role)
+			SetLogIdentity(ctx, claims.UserID, claims.Role)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// UserIDFromContext retrieves the authenticated user ID from context.
+func UserIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(ContextKeyUserID).(string)
+	return v, ok
+}
