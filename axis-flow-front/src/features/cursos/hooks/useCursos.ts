@@ -77,7 +77,8 @@ export const useUpsertNota = () => {
 export const useResolverExamen = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (req: ResolverExamenRequest) => resolverExamen(req),
+    mutationFn: ({ req, cursoId }: { req: ResolverExamenRequest; cursoId: number }) =>
+      resolverExamen(req, cursoId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({
         queryKey: cursosKeys.resultados(data.examen_id, data.empleado_id),

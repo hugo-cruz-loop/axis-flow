@@ -39,7 +39,7 @@ export function QuizCarousel() {
       opcion_id: answers[p.id],
     }))
     resolverExamen.mutate(
-      { examen_id: examen.id, respuestas },
+      { req: { examen_id: examen.id, respuestas }, cursoId: id },
       { onSuccess: (data) => setResultado(data) },
     )
   }

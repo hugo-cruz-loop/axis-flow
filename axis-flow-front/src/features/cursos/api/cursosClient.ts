@@ -60,8 +60,10 @@ export const upsertNota = (leccionId: number, contenido: string): Promise<Nota> 
 export const getExamen = (cursoId: number): Promise<Examen> =>
   axiosInstance.get(`/v1/cursos/${cursoId}/examen`).then((r) => r.data)
 
-export const resolverExamen = (req: ResolverExamenRequest): Promise<ResultadoExamen> =>
-  axiosInstance.post(`/v1/examenes/${req.examen_id}/resolver`, req).then((r) => r.data)
+export const resolverExamen = (req: ResolverExamenRequest, cursoId: number): Promise<ResultadoExamen> =>
+  axiosInstance
+    .post(`/v1/examenes/${req.examen_id}/resolver`, req, { params: { curso_id: cursoId } })
+    .then((r) => r.data)
 
 export const getResultados = (examenId: number, empleadoId: number): Promise<ResultadoExamen[]> =>
   axiosInstance
