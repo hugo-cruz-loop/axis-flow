@@ -21,6 +21,10 @@ import { ClientesPage } from '@/pages/dashboard/clientes/ClientesPage'
 import { ClientDetailPage } from '@/pages/dashboard/clientes/ClientDetailPage'
 import { EmpleadosPage } from '@/pages/dashboard/empleados/EmpleadosPage'
 import { EmpleadoDetailPage } from '@/pages/dashboard/empleados/EmpleadoDetailPage'
+import { CursosPage } from '@/features/cursos/pages/CursosPage'
+import { CursoPlayerPage } from '@/features/cursos/pages/CursoPlayerPage'
+import { QuizPage } from '@/features/cursos/pages/QuizPage'
+import { CertificadoPage } from '@/features/cursos/pages/CertificadoPage'
 
 // Role codes as stored in identity_roles.code and embedded in the JWT.
 const ADMIN_ROLES = ['ADMIN_CHECK_ON', 'ADMINISTRADOR'] as const
@@ -168,6 +172,40 @@ function App() {
       <Route
         path="/dashboard/empresa"
         element={<Navigate to="/dashboard" replace />}
+      />
+
+      {/* Cursos routes */}
+      <Route
+        path="/cursos"
+        element={
+          <ProtectedRoute>
+            <CursosPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cursos/:cursoId/player"
+        element={
+          <ProtectedRoute>
+            <CursoPlayerPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cursos/:cursoId/examen"
+        element={
+          <ProtectedRoute>
+            <QuizPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cursos/:examenId/certificado"
+        element={
+          <ProtectedRoute>
+            <CertificadoPage />
+          </ProtectedRoute>
+        }
       />
 
       {/* Legacy routes — kept for backward compatibility */}
