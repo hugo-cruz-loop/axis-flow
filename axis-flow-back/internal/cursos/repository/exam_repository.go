@@ -148,7 +148,14 @@ func (r *PgxExamRepository) GetExamenWithPreguntasAdmin(ctx context.Context, exa
 		}
 	}
 
-	_ = preguntas
+	// Attach preguntas with full opciones to the Examen for the grading path.
+	ex.Preguntas = make([]*cursos.ExamenPreguntaConOpciones, 0, len(preguntas))
+	for _, p := range preguntas {
+		ex.Preguntas = append(ex.Preguntas, &cursos.ExamenPreguntaConOpciones{
+			ExamenPregunta: p.ExamenPregunta,
+			Opciones:       p.OpcionesAdmin,
+		})
+	}
 	return ex, nil
 }
 

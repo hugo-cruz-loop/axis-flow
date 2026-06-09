@@ -122,6 +122,15 @@ type Examen struct {
 	NoteMin         float64  `json:"note_min"`
 	NumIntentos     int16    `json:"num_intentos"`
 	TiempoLimiteMin *int     `json:"tiempo_limite_min,omitempty"`
+	// Preguntas is populated by repository load helpers (admin path for grading).
+	Preguntas []*ExamenPreguntaConOpciones `json:"preguntas,omitempty"`
+}
+
+// ExamenPreguntaConOpciones enriches ExamenPregunta with its admin opciones (es_correcta included).
+// Used by the service grading path — never serialised to API responses directly.
+type ExamenPreguntaConOpciones struct {
+	ExamenPregunta
+	Opciones []*ExamenOpcion `json:"opciones,omitempty"`
 }
 
 // ExamenPregunta maps to cursos.cursos_examen_pregunta.
