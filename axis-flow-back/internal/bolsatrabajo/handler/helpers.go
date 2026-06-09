@@ -90,6 +90,8 @@ func mapBolsaError(w http.ResponseWriter, err error) {
 		respondError(w, http.StatusUnprocessableEntity, "INVALID_FILE", err.Error())
 	case errors.Is(err, bolsatrabajo.ErrCaptchaFail):
 		respondError(w, http.StatusBadRequest, "CAPTCHA_VALIDATION_FAILED", err.Error())
+	case errors.Is(err, bolsatrabajo.ErrInvalidInput):
+		respondError(w, http.StatusBadRequest, "INVALID_INPUT", err.Error())
 	default:
 		respondError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error")
 	}

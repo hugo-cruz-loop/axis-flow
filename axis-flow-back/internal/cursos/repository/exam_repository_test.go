@@ -15,6 +15,7 @@ import (
 // ExamRepositorier is the interface under test.
 type ExamRepositorier interface {
 	GetExamen(ctx context.Context, cursoID int64) (*cursos.Examen, error)
+	GetExamenByID(ctx context.Context, id int64) (*cursos.Examen, error)
 	GetExamenWithPreguntas(ctx context.Context, examenID int64) (*cursos.Examen, error)
 	GetExamenWithPreguntasAdmin(ctx context.Context, examenID int64) (*cursos.Examen, error)
 	GetResultados(ctx context.Context, examenID, empleadoID int64) ([]*cursos.ResultadoExamen, error)
@@ -69,6 +70,15 @@ func (m *mockExamRepo) GetExamen(_ context.Context, cursoID int64) (*cursos.Exam
 		return nil, cursos.ErrCursoNotFound
 	}
 	e := m.examenes[exID].Examen
+	return &e, nil
+}
+
+func (m *mockExamRepo) GetExamenByID(_ context.Context, id int64) (*cursos.Examen, error) {
+	ex, ok := m.examenes[id]
+	if !ok {
+		return nil, cursos.ErrCursoNotFound
+	}
+	e := ex.Examen
 	return &e, nil
 }
 
@@ -228,6 +238,29 @@ func TestExamRepo_SaveResultado_AssignsID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, r.ID, int64(0))
 	assert.False(t, r.CreatedAt.IsZero())
+}
+
+func TestExamRepo_GetExamenByID_HappyPath(t *testing.T) {
+	repo := newMockExamRepo()
+	repo.seedExamen(&ExamenWithOpciones{
+		Examen: cursos.Examen{
+			CursoID:     7,
+			Titulo:      "Exam by ID",
+			NoteMin:     70,
+			NumIntentos: 2,
+		},
+	})
+	// The seeded exam gets ID=1 (nextExID starts at 1).
+	ex, err := repo.GetExamenByID(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, "Exam by ID", ex.Titulo)
+	assert.Equal(t, int64(1), ex.ID)
+}
+
+func TestExamRepo_GetExamenByID_NotFound(t *testing.T) {
+	repo := newMockExamRepo()
+	_, err := repo.GetExamenByID(context.Background(), 999)
+	assert.ErrorIs(t, err, cursos.ErrCursoNotFound)
 }
 
 func TestExamRepo_GetResultados_FiltersByEmpleado(t *testing.T) {

@@ -39,7 +39,7 @@ var _ TrabajoService = (*trabajoService)(nil)
 
 func (s *trabajoService) Create(ctx context.Context, t *bolsatrabajo.Trabajo, empresaID uuid.UUID) (*bolsatrabajo.Trabajo, error) {
 	if !t.FechaCaducar.After(time.Now()) {
-		return nil, fmt.Errorf("trabajo: FechaCaducar must be a future date: %w", bolsatrabajo.ErrNotFound)
+		return nil, fmt.Errorf("trabajo: FechaCaducar must be a future date: %w", bolsatrabajo.ErrInvalidInput)
 	}
 	t.EmpresaID = empresaID
 	if t.EstatusVacante == 0 {
@@ -48,7 +48,7 @@ func (s *trabajoService) Create(ctx context.Context, t *bolsatrabajo.Trabajo, em
 	if err := s.repo.Create(ctx, t); err != nil {
 		return nil, err
 	}
-	_ = s.pub.Publish(ctx, "VacanteCreada", map[string]any{
+	_ = s.pub.Publish(ctx, events.StreamVacanteCreada, map[string]any{
 		"trabajo_id": t.ID,
 		"empresa_id": empresaID,
 	})
@@ -69,7 +69,7 @@ func (s *trabajoService) GetRecent(ctx context.Context, page, pageSize int) ([]*
 
 func (s *trabajoService) SwitchEstatus(ctx context.Context, id, empresaID uuid.UUID, newEstatus int) (*bolsatrabajo.Trabajo, error) {
 	if newEstatus < 1 || newEstatus > 3 {
-		return nil, fmt.Errorf("trabajo: newEstatus %d is not valid (must be 1, 2 or 3): %w", newEstatus, bolsatrabajo.ErrNotFound)
+		return nil, fmt.Errorf("trabajo: newEstatus %d is not valid (must be 1, 2 or 3): %w", newEstatus, bolsatrabajo.ErrInvalidInput)
 	}
 	return s.repo.SwitchEstatus(ctx, id, empresaID, newEstatus)
 }

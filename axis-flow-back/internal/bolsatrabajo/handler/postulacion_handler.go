@@ -8,6 +8,7 @@ import (
 
 	"axis-flow-back/internal/bolsatrabajo"
 	"axis-flow-back/internal/bolsatrabajo/service"
+	"axis-flow-back/internal/bolsatrabajo/storage"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -52,8 +53,6 @@ func NewPostulacionHandler(svc PostulacionServicer, opts ...postulacionHandlerOp
 	return h
 }
 
-const maxCVSize = 5 * 1024 * 1024 // 5 MB
-
 // Apply handles POST /bolsa-trabajo/postulacion/apply — Public, rate-limited.
 func (h *PostulacionHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	// Rate limit check
@@ -63,7 +62,7 @@ func (h *PostulacionHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseMultipartForm(maxCVSize + 1*1024*1024); err != nil {
+	if err := r.ParseMultipartForm(storage.MaxCVSize + 1*1024*1024); err != nil {
 		respondError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid multipart form")
 		return
 	}
@@ -100,7 +99,7 @@ func (h *PostulacionHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	cvSize := fileHeader.Size
-	if cvSize > maxCVSize {
+	if cvSize > storage.MaxCVSize {
 		respondError(w, http.StatusUnprocessableEntity, "INVALID_FILE", "cv file exceeds 5 MB limit")
 		return
 	}

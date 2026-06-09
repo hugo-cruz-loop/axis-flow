@@ -82,7 +82,7 @@ func (s *postulacionService) Apply(
 	}
 
 	// Step 5 — publish event.
-	_ = s.pub.Publish(ctx, "PostulacionRecibida", map[string]any{
+	_ = s.pub.Publish(ctx, events.StreamPostulacionRecibida, map[string]any{
 		"postulacion_id": p.ID,
 		"trabajo_id":     p.TrabajoID,
 	})
@@ -96,7 +96,7 @@ func (s *postulacionService) GetStatsByTrabajo(ctx context.Context, trabajoID, e
 
 func (s *postulacionService) UpdateEstatus(ctx context.Context, id, empresaID uuid.UUID, newEstatus int) (*bolsatrabajo.Postulacion, error) {
 	if newEstatus < 1 || newEstatus > 5 {
-		return nil, fmt.Errorf("postulacion: newEstatus %d is invalid (must be 1..5): %w", newEstatus, bolsatrabajo.ErrNotFound)
+		return nil, fmt.Errorf("postulacion: newEstatus %d is invalid (must be 1..5): %w", newEstatus, bolsatrabajo.ErrInvalidInput)
 	}
 
 	result, err := s.repo.UpdateEstatus(ctx, id, empresaID, newEstatus)
@@ -104,12 +104,12 @@ func (s *postulacionService) UpdateEstatus(ctx context.Context, id, empresaID uu
 		return nil, err
 	}
 
-	_ = s.pub.Publish(ctx, "PostulacionEstatusActualizado", map[string]any{
+	_ = s.pub.Publish(ctx, events.StreamPostulacionEstatusActualizado, map[string]any{
 		"postulacion_id": id,
 		"new_estatus":    newEstatus,
 	})
 	if newEstatus == bolsatrabajo.PostulacionContratado {
-		_ = s.pub.Publish(ctx, "CandidatoContratado", map[string]any{
+		_ = s.pub.Publish(ctx, events.StreamCandidatoContratado, map[string]any{
 			"postulacion_id": id,
 			"empresa_id":     empresaID,
 		})

@@ -33,7 +33,7 @@ var _ EvaluacionService = (*evaluacionService)(nil)
 
 func validateScore(name string, v int) error {
 	if v < 1 || v > 5 {
-		return fmt.Errorf("evaluacion: %s score %d is out of range (must be 1..5): %w", name, v, bolsatrabajo.ErrNotFound)
+		return fmt.Errorf("evaluacion: %s score %d is out of range (must be 1..5): %w", name, v, bolsatrabajo.ErrInvalidInput)
 	}
 	return nil
 }
@@ -53,7 +53,7 @@ func (s *evaluacionService) Create(ctx context.Context, e *bolsatrabajo.Evaluaci
 		return nil, err
 	}
 
-	_ = s.pub.Publish(ctx, "PostulacionEvaluada", map[string]any{
+	_ = s.pub.Publish(ctx, events.StreamPostulacionEvaluada, map[string]any{
 		"evaluacion_id":  e.ID,
 		"postulacion_id": e.PostulacionID,
 		"empresa_id":     empresaID,

@@ -47,8 +47,8 @@ func (s *pgxExamService) GetExamenForStudent(ctx context.Context, cursoID int64)
 //  6. aprobado = calificacion >= examen.NoteMin.
 //  7. Save and return ResultadoExamen.
 func (s *pgxExamService) ResolverExamen(ctx context.Context, empleadoID, examenID int64, respuestas map[int64]int64) (*cursos.ResultadoExamen, error) {
-	// 1. Get exam metadata.
-	ex, err := s.exam.GetExamen(ctx, examenID)
+	// 1. Get exam metadata by exam ID (not curso_id).
+	ex, err := s.exam.GetExamenByID(ctx, examenID)
 	if err != nil {
 		return nil, err
 	}

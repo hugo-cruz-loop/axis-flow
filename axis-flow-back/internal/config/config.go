@@ -26,6 +26,7 @@ type Config struct {
 	// Loaded from ENCRYPTION_KEY env var. Required. Never logged.
 	EncryptionKey string
 	Storage       StorageConfig
+	Recruitment   RecruitmentConfig
 	// PDF holds configuration for the PDF generation service (Gotenberg).
 	PDF PDFConfig
 }
@@ -88,6 +89,20 @@ type PDFConfig struct {
 	// When false a mock (static bytes) is returned. Default: false.
 	// Loaded from GOTENBERG_ENABLED.
 	GotenbergEnabled bool
+}
+
+// RecruitmentConfig holds settings for the BolsaDeTrabajo (job board) module.
+type RecruitmentConfig struct {
+	// TurnstileSecretKey is the Cloudflare Turnstile secret for server-side
+	// captcha validation. Loaded from TURNSTILE_SECRET_KEY. NEVER log this value.
+	TurnstileSecretKey string
+	// TurnstileEnabled controls whether the real Turnstile HTTP client is used.
+	// When false a mock (always passes) is used. Default: false.
+	// Loaded from TURNSTILE_ENABLED.
+	TurnstileEnabled bool
+	// AWSS3BucketName is the S3 bucket for CV uploads.
+	// Loaded from AWS_S3_BUCKET_NAME. Default: "checkon-recruitment-cvs".
+	AWSS3BucketName string
 }
 
 // StorageConfig holds file storage and biometric service settings.
@@ -253,6 +268,19 @@ func Load() (*Config, error) {
 		if cfg.Storage.AWSSecretAccessKey == "" {
 			errs = append(errs, "AWS_SECRET_ACCESS_KEY is required when AWS_REKOGNITION_ENABLED=true")
 		}
+	}
+
+	// Recruitment / BolsaDeTrabajo config.
+	// TurnstileSecretKey is sensitive — NEVER log it.
+	cfg.Recruitment = RecruitmentConfig{
+		TurnstileEnabled: os.Getenv("TURNSTILE_ENABLED") == "true",
+		TurnstileSecretKey: os.Getenv("TURNSTILE_SECRET_KEY"),
+		AWSS3BucketName: func() string {
+			if v := os.Getenv("AWS_S3_BUCKET_NAME"); v != "" {
+				return v
+			}
+			return "checkon-recruitment-cvs"
+		}(),
 	}
 
 	// PDF / Gotenberg config.

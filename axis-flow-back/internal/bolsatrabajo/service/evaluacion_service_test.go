@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"axis-flow-back/internal/bolsatrabajo"
+	"axis-flow-back/internal/bolsatrabajo/events"
 	"axis-flow-back/internal/bolsatrabajo/service"
 
 	"github.com/google/uuid"
@@ -68,8 +69,8 @@ func TestEvaluacionService_Create_Valid_PublishesEvent(t *testing.T) {
 	if len(pub.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(pub.events))
 	}
-	if pub.events[0].stream != "PostulacionEvaluada" {
-		t.Errorf("expected stream PostulacionEvaluada, got %s", pub.events[0].stream)
+	if pub.events[0].stream != events.StreamPostulacionEvaluada {
+		t.Errorf("expected stream %s, got %s", events.StreamPostulacionEvaluada, pub.events[0].stream)
 	}
 }
 

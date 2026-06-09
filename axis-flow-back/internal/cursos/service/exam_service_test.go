@@ -12,17 +12,24 @@ import (
 // --- mock ExamRepository ---
 
 type mockExamRepo struct {
-	getExamen                func(ctx context.Context, cursoID int64) (*cursos.Examen, error)
-	getExamenWithPreguntas   func(ctx context.Context, examenID int64) (*cursos.Examen, error)
+	getExamen                   func(ctx context.Context, cursoID int64) (*cursos.Examen, error)
+	getExamenByID               func(ctx context.Context, id int64) (*cursos.Examen, error)
+	getExamenWithPreguntas      func(ctx context.Context, examenID int64) (*cursos.Examen, error)
 	getExamenWithPreguntasAdmin func(ctx context.Context, examenID int64) (*cursos.Examen, error)
-	getResultados            func(ctx context.Context, examenID, empleadoID int64) ([]*cursos.ResultadoExamen, error)
-	countIntentos            func(ctx context.Context, examenID, empleadoID int64) (int, error)
-	saveResultado            func(ctx context.Context, r *cursos.ResultadoExamen) error
+	getResultados               func(ctx context.Context, examenID, empleadoID int64) ([]*cursos.ResultadoExamen, error)
+	countIntentos               func(ctx context.Context, examenID, empleadoID int64) (int, error)
+	saveResultado               func(ctx context.Context, r *cursos.ResultadoExamen) error
 }
 
 func (m *mockExamRepo) GetExamen(ctx context.Context, cursoID int64) (*cursos.Examen, error) {
 	if m.getExamen != nil {
 		return m.getExamen(ctx, cursoID)
+	}
+	return nil, cursos.ErrCursoNotFound
+}
+func (m *mockExamRepo) GetExamenByID(ctx context.Context, id int64) (*cursos.Examen, error) {
+	if m.getExamenByID != nil {
+		return m.getExamenByID(ctx, id)
 	}
 	return nil, cursos.ErrCursoNotFound
 }
@@ -103,7 +110,7 @@ func buildFullExamAdmin(numIntentos int16, noteMin float64, answers map[int64]bo
 
 func TestResolverExamen_ExceededAttempts(t *testing.T) {
 	examRepo := &mockExamRepo{
-		getExamen: func(_ context.Context, cursoID int64) (*cursos.Examen, error) {
+		getExamenByID: func(_ context.Context, id int64) (*cursos.Examen, error) {
 			ex := buildExamenWithPreguntas(2, 70, nil)
 			return ex, nil
 		},
@@ -143,9 +150,9 @@ func TestResolverExamen_AllCorrect_Aprobado(t *testing.T) {
 	}
 
 	examRepo := &mockExamRepo{
-		getExamen: func(_ context.Context, cursoID int64) (*cursos.Examen, error) {
+		getExamenByID: func(_ context.Context, id int64) (*cursos.Examen, error) {
 			return &cursos.Examen{
-				ID: 1, CursoID: cursoID, NumIntentos: 3, NoteMin: 70,
+				ID: 1, CursoID: 10, NumIntentos: 3, NoteMin: 70,
 			}, nil
 		},
 		countIntentos: func(_ context.Context, _, _ int64) (int, error) {
@@ -194,9 +201,9 @@ func TestResolverExamen_NoneCorrect_NotAprobado(t *testing.T) {
 	}
 
 	examRepo := &mockExamRepo{
-		getExamen: func(_ context.Context, cursoID int64) (*cursos.Examen, error) {
+		getExamenByID: func(_ context.Context, id int64) (*cursos.Examen, error) {
 			return &cursos.Examen{
-				ID: 1, CursoID: cursoID, NumIntentos: 3, NoteMin: 70,
+				ID: 1, CursoID: 10, NumIntentos: 3, NoteMin: 70,
 			}, nil
 		},
 		countIntentos: func(_ context.Context, _, _ int64) (int, error) { return 0, nil },

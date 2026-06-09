@@ -23,8 +23,12 @@ type EnrollmentRepository interface {
 func IsEnrolled(enrollRepo EnrollmentRepository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extract curso_id from URL params.
+			// Extract curso_id from URL params, falling back to query param
+			// for routes where curso_id is not part of the URL pattern (e.g. POST /examen/resolver).
 			cursoIDStr := chi.URLParam(r, "curso_id")
+			if cursoIDStr == "" {
+				cursoIDStr = r.URL.Query().Get("curso_id")
+			}
 			cursoID, err := strconv.ParseInt(cursoIDStr, 10, 64)
 			if err != nil || cursoID <= 0 {
 				writeError(w, "BAD_REQUEST", "invalid curso_id", http.StatusBadRequest)

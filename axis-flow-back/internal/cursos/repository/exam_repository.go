@@ -15,6 +15,8 @@ import (
 // ExamRepository defines persistence for exams and results.
 type ExamRepository interface {
 	GetExamen(ctx context.Context, cursoID int64) (*cursos.Examen, error)
+	// GetExamenByID fetches a single exam by its primary key (id column).
+	GetExamenByID(ctx context.Context, id int64) (*cursos.Examen, error)
 	// GetExamenWithPreguntas returns the exam with questions and student-safe options (NO es_correcta).
 	GetExamenWithPreguntas(ctx context.Context, examenID int64) (*cursos.Examen, error)
 	// GetExamenWithPreguntasAdmin returns the exam with full options including es_correcta (admin/grading only).
@@ -64,6 +66,11 @@ func (r *PgxExamRepository) GetExamen(ctx context.Context, cursoID int64) (*curs
 		return nil, fmt.Errorf("PgxExamRepository.GetExamen: %w", err)
 	}
 	return &e, nil
+}
+
+// GetExamenByID returns the exam row identified by its primary key (id), not by curso_id.
+func (r *PgxExamRepository) GetExamenByID(ctx context.Context, id int64) (*cursos.Examen, error) {
+	return r.loadExamenBase(ctx, id)
 }
 
 // GetExamenWithPreguntas loads exam + preguntas + student-safe opciones.

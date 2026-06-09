@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"axis-flow-back/internal/bolsatrabajo"
+	"axis-flow-back/internal/bolsatrabajo/events"
 	"axis-flow-back/internal/bolsatrabajo/service"
 
 	"github.com/google/uuid"
@@ -135,8 +136,8 @@ func TestPostulacionService_Apply_Success_PublishesEvent(t *testing.T) {
 	if len(pub.events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(pub.events))
 	}
-	if pub.events[0].stream != "PostulacionRecibida" {
-		t.Errorf("expected stream PostulacionRecibida, got %s", pub.events[0].stream)
+	if pub.events[0].stream != events.StreamPostulacionRecibida {
+		t.Errorf("expected stream %s, got %s", events.StreamPostulacionRecibida, pub.events[0].stream)
 	}
 }
 
@@ -190,10 +191,10 @@ func TestPostulacionService_UpdateEstatus_Contracted_PublishesBothEvents(t *test
 	for _, e := range pub.events {
 		streams[e.stream] = true
 	}
-	if !streams["PostulacionEstatusActualizado"] {
+	if !streams[events.StreamPostulacionEstatusActualizado] {
 		t.Error("missing PostulacionEstatusActualizado event")
 	}
-	if !streams["CandidatoContratado"] {
+	if !streams[events.StreamCandidatoContratado] {
 		t.Error("missing CandidatoContratado event")
 	}
 }
