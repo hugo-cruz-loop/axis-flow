@@ -26,6 +26,8 @@ type Config struct {
 	// Loaded from ENCRYPTION_KEY env var. Required. Never logged.
 	EncryptionKey string
 	Storage       StorageConfig
+	// PDF holds configuration for the PDF generation service (Gotenberg).
+	PDF PDFConfig
 }
 
 // ServerConfig contains HTTP server settings.
@@ -75,6 +77,17 @@ type ObservabilityConfig struct {
 	LogLevel             string
 	LogFormat            string
 	SentryDSN            string
+}
+
+// PDFConfig holds settings for the Gotenberg PDF generation service.
+type PDFConfig struct {
+	// Endpoint is the base URL of the Gotenberg / pdf-engine service.
+	// Loaded from PDF_ENGINE_ENDPOINT. Default: http://pdf-engine:3000.
+	Endpoint string
+	// GotenbergEnabled controls whether real PDF generation is used.
+	// When false a mock (static bytes) is returned. Default: false.
+	// Loaded from GOTENBERG_ENABLED.
+	GotenbergEnabled bool
 }
 
 // StorageConfig holds file storage and biometric service settings.
@@ -240,6 +253,17 @@ func Load() (*Config, error) {
 		if cfg.Storage.AWSSecretAccessKey == "" {
 			errs = append(errs, "AWS_SECRET_ACCESS_KEY is required when AWS_REKOGNITION_ENABLED=true")
 		}
+	}
+
+	// PDF / Gotenberg config.
+	cfg.PDF = PDFConfig{
+		Endpoint: func() string {
+			if v := os.Getenv("PDF_ENGINE_ENDPOINT"); v != "" {
+				return v
+			}
+			return "http://pdf-engine:3000"
+		}(),
+		GotenbergEnabled: os.Getenv("GOTENBERG_ENABLED") == "true",
 	}
 
 	// EncryptionKey: required, must decode to exactly 32 bytes.
