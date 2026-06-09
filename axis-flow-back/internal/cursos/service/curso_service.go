@@ -25,6 +25,9 @@ type CursoService interface {
 
 	GetCursoContenido(ctx context.Context, cursoID int64) ([]*cursos.Unidad, error)
 
+	CreateModulo(ctx context.Context, m *cursos.Modulo, empresaID uuid.UUID) error
+	ListModulos(ctx context.Context, empresaID uuid.UUID) ([]*cursos.Modulo, error)
+
 	CreateUnidad(ctx context.Context, u *cursos.Unidad) error
 	UpdateUnidad(ctx context.Context, u *cursos.Unidad) error
 	DeleteUnidad(ctx context.Context, id int64) error
@@ -97,6 +100,15 @@ func (s *pgxCursoService) DeleteCurso(ctx context.Context, id int64, empresaID u
 
 func (s *pgxCursoService) GetCursoContenido(ctx context.Context, cursoID int64) ([]*cursos.Unidad, error) {
 	return s.content.GetCursoContenido(ctx, cursoID)
+}
+
+func (s *pgxCursoService) CreateModulo(ctx context.Context, m *cursos.Modulo, empresaID uuid.UUID) error {
+	m.EmpresaID = empresaID
+	return s.catalog.CreateModulo(ctx, m)
+}
+
+func (s *pgxCursoService) ListModulos(ctx context.Context, empresaID uuid.UUID) ([]*cursos.Modulo, error) {
+	return s.catalog.ListModulos(ctx, empresaID)
 }
 
 func (s *pgxCursoService) CreateUnidad(ctx context.Context, u *cursos.Unidad) error {
