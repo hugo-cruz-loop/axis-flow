@@ -141,6 +141,7 @@ func main() {
 	authHandler := handler.NewAuthHandler(authSvc)
 	activationHandler := handler.NewActivationHandler(activationSvc)
 	userHandler := handler.NewUserHandler(userSvc, deleteEnabled)
+	empleadosRoutes, empleadosGateway := newEmpleadosModule(dbPool, redisClient, *cfg)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -499,6 +500,12 @@ func main() {
 		r.Post("/api/v1/empresa/{id}/servicios", protectedEmpresaHandler.CreateServicio)
 		r.Put("/api/v1/empresa/{id}/servicios/{servicio_id}", protectedEmpresaHandler.UpdateServicio)
 		r.Delete("/api/v1/empresa/{id}/servicios/{servicio_id}", protectedEmpresaHandler.DeleteServicio)
+	})
+
+	// ── Empleados module ───────────────────────────────────────────────────────
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.JWTAuth(authSvc))
+		registerEmpleadosRoutes(r, empleadosRoutes, empleadosGateway)
 	})
 
 	// ── Clientes module ───────────────────────────────────────────────────────

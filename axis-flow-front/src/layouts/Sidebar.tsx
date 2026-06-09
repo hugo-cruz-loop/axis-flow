@@ -12,6 +12,7 @@ import {
   Database,
   Building2,
   Briefcase,
+  UserCheck,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/lib/utils'
@@ -42,6 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Roles', icon: Shield, to: '/dashboard/roles' },
       { label: 'Permissions', icon: Key, to: '/dashboard/permissions' },
       { label: 'Clients', icon: Briefcase, to: '/dashboard/clientes' },
+      { label: 'Employees', icon: UserCheck, to: '/dashboard/empleados' },
       { label: 'Catalogs', icon: Database, to: '/dashboard/catalogos' },
       { label: 'Mi Empresa', icon: Building2, to: '/dashboard/empresa/1' },
     ],

@@ -25,6 +25,7 @@ type Config struct {
 	// EncryptionKey is a 32-byte AES-256 key hex-encoded (64 hex chars).
 	// Loaded from ENCRYPTION_KEY env var. Required. Never logged.
 	EncryptionKey string
+	Storage       StorageConfig
 }
 
 // ServerConfig contains HTTP server settings.
@@ -74,6 +75,22 @@ type ObservabilityConfig struct {
 	LogLevel             string
 	LogFormat            string
 	SentryDSN            string
+}
+
+// StorageConfig holds file storage and biometric service settings.
+type StorageConfig struct {
+	// MinIOEndpoint is the MinIO server address. Empty = use LocalStorage.
+	MinIOEndpoint string
+	// MinIOBucket is the target bucket for employee files.
+	MinIOBucket string
+	// AWSRegion is the AWS region for Rekognition calls.
+	AWSRegion string
+	// AWSAccessKeyID is required when RekognitionEnabled is true. NEVER LOG.
+	AWSAccessKeyID string
+	// AWSSecretAccessKey is required when RekognitionEnabled is true. NEVER LOG.
+	AWSSecretAccessKey string
+	// RekognitionEnabled enables AWS Rekognition face comparison. Default false.
+	RekognitionEnabled bool
 }
 
 // Load reads all required environment variables and returns a validated Config.
@@ -192,6 +209,36 @@ func Load() (*Config, error) {
 		}
 		if cfg.Stripe.WebhookSecret == "" {
 			errs = append(errs, "STRIPE_WEBHOOK_SECRET is required when STRIPE_ENABLED=true")
+		}
+	}
+
+	// Storage / file upload / biometric config.
+	rekognitionEnabled := os.Getenv("AWS_REKOGNITION_ENABLED") == "true"
+	cfg.Storage = StorageConfig{
+		MinIOEndpoint: os.Getenv("MINIO_ENDPOINT"),
+		MinIOBucket: func() string {
+			if v := os.Getenv("MINIO_BUCKET"); v != "" {
+				return v
+			}
+			return "checkon-empleados"
+		}(),
+		AWSRegion: func() string {
+			if v := os.Getenv("AWS_REGION"); v != "" {
+				return v
+			}
+			return "us-east-1"
+		}(),
+		// AWSAccessKeyID and AWSSecretAccessKey are sensitive — NEVER LOG.
+		AWSAccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+		AWSSecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		RekognitionEnabled: rekognitionEnabled,
+	}
+	if rekognitionEnabled {
+		if cfg.Storage.AWSAccessKeyID == "" {
+			errs = append(errs, "AWS_ACCESS_KEY_ID is required when AWS_REKOGNITION_ENABLED=true")
+		}
+		if cfg.Storage.AWSSecretAccessKey == "" {
+			errs = append(errs, "AWS_SECRET_ACCESS_KEY is required when AWS_REKOGNITION_ENABLED=true")
 		}
 	}
 

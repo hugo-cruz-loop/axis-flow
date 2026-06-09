@@ -19,9 +19,12 @@ import { CatalogosDashboard } from '@/pages/dashboard/CatalogosDashboard'
 import { EmpresaDashboard } from '@/pages/dashboard/empresa/EmpresaDashboard'
 import { ClientesPage } from '@/pages/dashboard/clientes/ClientesPage'
 import { ClientDetailPage } from '@/pages/dashboard/clientes/ClientDetailPage'
+import { EmpleadosPage } from '@/pages/dashboard/empleados/EmpleadosPage'
+import { EmpleadoDetailPage } from '@/pages/dashboard/empleados/EmpleadoDetailPage'
 
 // Role codes as stored in identity_roles.code and embedded in the JWT.
 const ADMIN_ROLES = ['ADMIN_CHECK_ON', 'ADMINISTRADOR'] as const
+const EMPLEADOS_ROLES = ['ADMIN_CHECK_ON', 'ADMINISTRADOR', 'RH'] as const
 
 function App() {
   return (
@@ -133,6 +136,24 @@ function App() {
         element={
           <ProtectedRoute>
             <ClientDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/empleados"
+        element={
+          <ProtectedRoute>
+            <RoleGate allowedRoles={[...EMPLEADOS_ROLES]}>
+              <EmpleadosPage />
+            </RoleGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/empleados/:numEmpleado"
+        element={
+          <ProtectedRoute>
+            <EmpleadoDetailPage />
           </ProtectedRoute>
         }
       />
