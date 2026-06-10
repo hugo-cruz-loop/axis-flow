@@ -2,6 +2,8 @@
 # Binaries for programs and plugins
 /bin/
 **/bin/
+/server
+**/server
 *.exe
 *.exe~
 *.dll
