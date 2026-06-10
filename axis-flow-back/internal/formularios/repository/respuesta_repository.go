@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -10,7 +11,127 @@ import (
 	"axis-flow-back/internal/formularios"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ---------------------------------------------------------------------------
+// PgxRespuestaRepository — PostgreSQL implementation of RespuestaRepository.
+// ---------------------------------------------------------------------------
+
+// PgxRespuestaRepository is a PostgreSQL-backed RespuestaRepository.
+type PgxRespuestaRepository struct {
+	db formulariosDB
+}
+
+// NewPgxRespuestaRepository creates a PostgreSQL respuesta repository.
+func NewPgxRespuestaRepository(pool *pgxpool.Pool) *PgxRespuestaRepository {
+	return &PgxRespuestaRepository{db: pool}
+}
+
+// Create inserts a new formularios_respuestas row. Evidence URLs are stored as
+// plain VARCHAR paths (JSON-declared or pre-uploaded S3 keys) — this adapter
+// does NOT touch S3; the upload itself is a service-layer concern (PR-3).
+// The DB CHECK on geolocation lat/lon enforces the [-90, 90] / [-180, 180]
+// ranges; we do not duplicate the check here.
+func (r *PgxRespuestaRepository) Create(ctx context.Context, resp *formularios.Respuesta) error {
+	const q = `
+		INSERT INTO formularios.formularios_respuestas
+		    (id, evento_iniciado_id, pregunta_id, respuesta_texto, respuesta_lista,
+		     evidencia1, evidencia2, evidencia3, documento_url,
+		     geolocalizacion_respuesta_lat, geolocalizacion_respuesta_lon,
+		     created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())`
+	var rawLista any
+	if len(resp.RespuestaLista) > 0 {
+		rawLista = []byte(resp.RespuestaLista)
+	}
+	_, err := r.db.Exec(ctx, q,
+		resp.ID, resp.EventoIniciadoID, resp.PreguntaID,
+		nullStr(resp.RespuestaTexto), rawLista,
+		nullStr(resp.Evidencia1), nullStr(resp.Evidencia2), nullStr(resp.Evidencia3),
+		nullStr(resp.DocumentoURL),
+		nullFloat(resp.GeolocalizacionRespuestaLat),
+		nullFloat(resp.GeolocalizacionRespuestaLon),
+	)
+	if mapped := mapPgError(err); mapped != nil {
+		if errors.Is(mapped, formularios.ErrInvalidInput) || errors.Is(mapped, formularios.ErrConflict) || errors.Is(mapped, formularios.ErrNotFound) {
+			return mapped
+		}
+		return fmt.Errorf("respuesta_repository.Create: %w", err)
+	}
+	return nil
+}
+
+// ListByIniciado returns respuestas for the given iniciado, ordered by
+// created_at ASC. IDOR is enforced at the service layer (the parent iniciado
+// must be fetched and scoped to the caller's empresa first).
+func (r *PgxRespuestaRepository) ListByIniciado(ctx context.Context, iniciadoID uuid.UUID) ([]*formularios.Respuesta, error) {
+	const q = `
+		SELECT id, evento_iniciado_id, pregunta_id,
+		       COALESCE(respuesta_texto, ''),
+		       COALESCE(respuesta_lista, '{}'::jsonb),
+		       COALESCE(evidencia1, ''), COALESCE(evidencia2, ''), COALESCE(evidencia3, ''),
+		       COALESCE(documento_url, ''),
+		       geolocalizacion_respuesta_lat, geolocalizacion_respuesta_lon,
+		       created_at, updated_at
+		FROM formularios.formularios_respuestas
+		WHERE evento_iniciado_id = $1
+		ORDER BY created_at ASC`
+	rows, err := r.db.Query(ctx, q, iniciadoID)
+	if err != nil {
+		return nil, fmt.Errorf("respuesta_repository.ListByIniciado query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*formularios.Respuesta
+	for rows.Next() {
+		resp, scanErr := scanRespuesta(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("respuesta_repository.ListByIniciado scan: %w", scanErr)
+		}
+		out = append(out, resp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("respuesta_repository.ListByIniciado rows: %w", err)
+	}
+	if out == nil {
+		return []*formularios.Respuesta{}, nil
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// scanners
+// ---------------------------------------------------------------------------
+
+type respuestaRowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanRespuesta(row respuestaRowScanner) (*formularios.Respuesta, error) {
+	r := &formularios.Respuesta{}
+	var rawLista []byte
+	var lat, lon *float64
+	err := row.Scan(
+		&r.ID, &r.EventoIniciadoID, &r.PreguntaID,
+		&r.RespuestaTexto, &rawLista,
+		&r.Evidencia1, &r.Evidencia2, &r.Evidencia3, &r.DocumentoURL,
+		&lat, &lon, &r.CreatedAt, &r.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, formularios.ErrNotFound
+		}
+		return nil, err
+	}
+	if len(rawLista) > 0 {
+		r.RespuestaLista = append(r.RespuestaLista, rawLista...)
+	}
+	r.GeolocalizacionRespuestaLat = lat
+	r.GeolocalizacionRespuestaLon = lon
+	return r, nil
+}
 
 // ---------------------------------------------------------------------------
 // InMemRespuestaRepository — goroutine-safe, in-memory adapter.

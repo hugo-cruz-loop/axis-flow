@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -10,7 +11,192 @@ import (
 	"axis-flow-back/internal/formularios"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
+
+// ---------------------------------------------------------------------------
+// PgxEventoRepository — PostgreSQL implementation of EventoRepository.
+// ---------------------------------------------------------------------------
+
+// PgxEventoRepository is a PostgreSQL-backed EventoRepository.
+type PgxEventoRepository struct {
+	db    formulariosDB
+	cache *RedisFormulariosCacheInvalidator
+}
+
+// NewPgxEventoRepository creates a PostgreSQL evento repository.
+// Pass a nil redis.Client to disable cache invalidation.
+func NewPgxEventoRepository(pool *pgxpool.Pool, redisClient redis.Cmdable) *PgxEventoRepository {
+	var cache *RedisFormulariosCacheInvalidator
+	if redisClient != nil {
+		cache = NewRedisFormulariosCacheInvalidator(redisClient)
+	}
+	return &PgxEventoRepository{db: pool, cache: cache}
+}
+
+// Create inserts a new eventos_evento header plus one M:N association row per
+// formularioID in eventos_evento_formulario.
+func (r *PgxEventoRepository) Create(ctx context.Context, e *formularios.Evento, formularioIDs []uuid.UUID) error {
+	const insertHeader = `
+		INSERT INTO formularios.eventos_evento
+		    (id, empresa_id, cliente_id, localidad_id, nombre, descripcion,
+		     fecha_programada, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`
+	_, err := r.db.Exec(ctx, insertHeader,
+		e.ID, e.EmpresaID, e.ClienteID, e.LocalidadID,
+		e.Nombre, nullStr(e.Descripcion), e.FechaProgramada, e.Status,
+	)
+	if mapped := mapPgError(err); mapped != nil {
+		if errors.Is(mapped, formularios.ErrInvalidInput) || errors.Is(mapped, formularios.ErrConflict) {
+			return mapped
+		}
+		return fmt.Errorf("evento_repository.Create insert: %w", err)
+	}
+
+	if len(formularioIDs) > 0 {
+		const insertAsoc = `
+			INSERT INTO formularios.eventos_evento_formulario
+			    (id, evento_id, formulario_id, created_at)
+			VALUES ($1, $2, $3, NOW())`
+		for _, formID := range formularioIDs {
+			_, err := r.db.Exec(ctx, insertAsoc, uuid.New(), e.ID, formID)
+			if mapped := mapPgError(err); mapped != nil {
+				if errors.Is(mapped, formularios.ErrConflict) {
+					return formularios.ErrConflict
+				}
+				return fmt.Errorf("evento_repository.Create asoc: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// GetByID fetches an eventos_evento row by primary key, scoped by empresa_id
+// for IDOR. Returns formularios.ErrNotFound on miss or wrong tenant.
+func (r *PgxEventoRepository) GetByID(ctx context.Context, id, empresaID uuid.UUID) (*formularios.Evento, error) {
+	const q = `
+		SELECT id, empresa_id, cliente_id, localidad_id, nombre, COALESCE(descripcion,''),
+		       fecha_programada, status, created_at
+		FROM formularios.eventos_evento
+		WHERE id = $1 AND empresa_id = $2`
+	e, err := scanEvento(r.db.QueryRow(ctx, q, id, empresaID))
+	if err != nil {
+		if errors.Is(err, formularios.ErrNotFound) {
+			return nil, formularios.ErrNotFound
+		}
+		return nil, fmt.Errorf("evento_repository.GetByID: %w", err)
+	}
+	return e, nil
+}
+
+// ListByEmpCte returns paginated eventos for an (empresa, cliente) pair,
+// optionally filtered by status, ordered by created_at DESC.
+func (r *PgxEventoRepository) ListByEmpCte(ctx context.Context, empresaID, clienteID uuid.UUID, status *string, page, pageSize int) ([]*formularios.Evento, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	offset := (page - 1) * pageSize
+
+	baseQ := `FROM formularios.eventos_evento WHERE empresa_id = $1 AND cliente_id = $2`
+	args := []any{empresaID, clienteID}
+	if status != nil {
+		baseQ += fmt.Sprintf(" AND status = $%d", len(args)+1)
+		args = append(args, *status)
+	}
+
+	var total int
+	if err := r.db.QueryRow(ctx, "SELECT COUNT(*) "+baseQ, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("evento_repository.ListByEmpCte count: %w", err)
+	}
+
+	selectQ := "SELECT id, empresa_id, cliente_id, localidad_id, nombre, COALESCE(descripcion,''), fecha_programada, status, created_at " +
+		baseQ + fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, pageSize, offset)
+
+	rows, err := r.db.Query(ctx, selectQ, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("evento_repository.ListByEmpCte query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*formularios.Evento
+	for rows.Next() {
+		e, scanErr := scanEvento(rows)
+		if scanErr != nil {
+			return nil, 0, fmt.Errorf("evento_repository.ListByEmpCte scan: %w", scanErr)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("evento_repository.ListByEmpCte rows: %w", err)
+	}
+	return out, total, nil
+}
+
+// CreateIniciado inserts a new eventos_evento_iniciado row. The FK to
+// formularios.eventos_evento (and the CHECK on status / geo) is enforced at
+// the DB level; the service layer is responsible for confirming the parent
+// evento belongs to the caller's empresa BEFORE calling CreateIniciado
+// (via eventoRepo.GetByID(ctx, eventoID, empresaID)).
+//
+// The cross-table IDOR comment in the InMem implementation applies here too:
+// the iniciado row has no empresa_id column, so the empresa check is the
+// service layer's responsibility.
+func (r *PgxEventoRepository) CreateIniciado(ctx context.Context, i *formularios.EventoIniciado) error {
+	const q = `
+		INSERT INTO formularios.eventos_evento_iniciado
+		    (id, evento_id, empleado_id, geolocalizacion_inicio_lat,
+		     geolocalizacion_inicio_lon, check_in_time, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`
+	_, err := r.db.Exec(ctx, q,
+		i.ID, i.EventoID, i.EmpleadoID,
+		nullFloat(i.GeolocalizacionInicioLat),
+		nullFloat(i.GeolocalizacionInicioLon),
+		i.CheckInTime, i.Status,
+	)
+	if mapped := mapPgError(err); mapped != nil {
+		if errors.Is(mapped, formularios.ErrInvalidInput) || errors.Is(mapped, formularios.ErrConflict) || errors.Is(mapped, formularios.ErrNotFound) {
+			return mapped
+		}
+		return fmt.Errorf("evento_repository.CreateIniciado: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// scanners
+// ---------------------------------------------------------------------------
+
+type eventoRowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanEvento(row eventoRowScanner) (*formularios.Evento, error) {
+	e := &formularios.Evento{}
+	err := row.Scan(
+		&e.ID, &e.EmpresaID, &e.ClienteID, &e.LocalidadID,
+		&e.Nombre, &e.Descripcion, &e.FechaProgramada, &e.Status, &e.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, formularios.ErrNotFound
+		}
+		return nil, err
+	}
+	return e, nil
+}
+
+func nullFloat(v *float64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
 
 // ---------------------------------------------------------------------------
 // InMemEventoRepository — goroutine-safe, in-memory adapter.
@@ -25,7 +211,7 @@ import (
 //   - chk_eventos_evento_iniciado_status
 //   - chk_eventos_evento_iniciado_geo_lat / _lon
 //
-// The pgx adapter (PR-2 will add a thin wrapper) relies on the DB layer for
+// The pgx adapter (this file holds both adapters) relies on the DB layer for
 // the same constraints; this in-memory simulation is for unit tests only.
 // ---------------------------------------------------------------------------
 
