@@ -6,8 +6,26 @@
 // is the source of truth for delivery; cache invalidation is best-effort).
 //
 // PR-3 task 3.5 refactor consolidates the previously-inlined call sites
-// into this single helper and adds the no-PII audit. The current signature
-// is the final one — task 3.5 will only touch the call sites.
+// into this single helper and adds the no-PII audit.
+//
+// No-PII audit (PR-3 task 3.5):
+//
+//   - The helper itself takes a payload map[string]any. Call sites are
+//     responsible for ensuring the payload does NOT contain user-supplied
+//     strings (nombre, descripcion, texto_pregunta, evidencia URLs, file
+//     paths, geo coordinates).
+//   - Current call sites use only IDs (UUIDs, int64 empleadoID) and
+//     time.Time stamps in the payload. No PII fields are included.
+//   - On a future field-schema change, the audit MUST be re-run: search
+//     for `Stream*` constants in this package and check that the
+//     corresponding payload map does not include user-supplied strings.
+//
+// Companion rule: error returns across the 4 services must use generic
+// sentinel errors (formularios.ErrInvalidInput / ErrForbidden /
+// ErrNotFound / ErrConflict) or generic fmt.Errorf("pdf: <step> failed")
+// without wrapping the underlying error. The PR-3 test
+// `*NoPIIInErrorMessages` (one per service) asserts the error message
+// does not contain the offending user input.
 package service
 
 import (

@@ -9,6 +9,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"axis-flow-back/internal/formularios"
@@ -294,4 +295,53 @@ func TestFormularioService_CreateFormulario_SwallowsCacheErrors(t *testing.T) {
 	_, err := svc.CreateFormulario(context.Background(), f, empresaID)
 	require.NoError(t, err, "cache error must not fail the write")
 	assert.Equal(t, []uuid.UUID{empresaID}, cache.formularioCalls)
+}
+
+// ---------------------------------------------------------------------------
+// No-PII regression (PR-3 task 3.5 audit). Every error message across the
+// 4 services must NOT include user-supplied strings (nombre,
+// descripcion, texto_pregunta, evidencia URLs, file paths, geo coords).
+// ---------------------------------------------------------------------------
+
+func TestFormularioService_NoPIIInErrorMessages(t *testing.T) {
+	formRepo, preguntaRepo, pub, cache := newFormularioFixture(t)
+	svc := service.NewFormularioService(formRepo, preguntaRepo, pub, cache)
+
+	empresaID := uuid.New()
+
+	// CreateFormulario: a nombre over the 150-char cap with PII-shaped
+	// content must not appear in the error message (the error is
+	// ErrInvalidInput with a generic message; the offending value is
+	// intentionally NOT echoed).
+	piiNombre := strings.Repeat("Cliente VIP-DNI-4111-1111-1111-1111-", 6) // 40*6 = 240 chars
+	f := &formularios.Formulario{EmpresaID: empresaID, Nombre: piiNombre, Activo: true}
+	_, err := svc.CreateFormulario(context.Background(), f, empresaID)
+	require.ErrorIs(t, err, formularios.ErrInvalidInput)
+	assert.NotContains(t, err.Error(), piiNombre, "nombre must not be echoed in the error")
+	assert.NotContains(t, err.Error(), "4111-1111", "PII must not be echoed in the error")
+
+	// Tenant mismatch: the body EmpresaID (a UUID) is not PII, but the
+	// test asserts the service returns ErrForbidden with a generic
+	// message.
+	body := uuid.New()
+	_, err = svc.CreateFormulario(context.Background(), &formularios.Formulario{
+		EmpresaID: body, Nombre: "X", Activo: true,
+	}, uuid.New())
+	require.ErrorIs(t, err, formularios.ErrForbidden)
+	assert.Equal(t, formularios.ErrForbidden.Error(), err.Error(), "no extra context leaked")
+
+	// AddPregunta: texto_pregunta with PII content must not leak via
+	// the published payload (AddPregunta does not publish, so this is
+	// a negative assertion on the events list).
+	formID := uuid.New()
+	require.NoError(t, formRepo.Create(context.Background(), &formularios.Formulario{
+		ID: formID, EmpresaID: empresaID, Nombre: "F", Activo: true,
+	}))
+	piiTexto := "Confidencial: paciente John Doe, DNI 12345678"
+	_, err = svc.AddPregunta(context.Background(), &formularios.Pregunta{
+		FormularioID: formID, Orden: 1, TipoPregunta: formularios.TipoPreguntaTexto,
+		TextoPregunta: piiTexto, Obligatoria: false,
+	}, empresaID)
+	require.NoError(t, err, "texto_pregunta is non-empty so it must succeed")
+	assert.Empty(t, pub.events, "AddPregunta must not publish — and must NOT include texto_pregunta in any payload")
 }

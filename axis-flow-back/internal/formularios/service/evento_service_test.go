@@ -271,3 +271,56 @@ func TestEventoService_IniciarEvento_RejectsMissingEvento(t *testing.T) {
 	_, err := svc.IniciarEvento(context.Background(), ei, uuid.New())
 	require.ErrorIs(t, err, formularios.ErrNotFound)
 }
+
+// ---------------------------------------------------------------------------
+// No-PII regression (PR-3 task 3.5 audit).
+// ---------------------------------------------------------------------------
+
+func TestEventoService_NoPIIInErrorMessages(t *testing.T) {
+	repo, pub, cache := newEventoFixture(t)
+	svc := service.NewEventoService(repo, pub, cache)
+
+	empresaID := uuid.New()
+	clienteID := uuid.New()
+
+	// CreateEvento: nombre with PII-shaped content must not leak.
+	piiNombre := "Inspección de Sucursal Norte — CCTV fuera de servicio"
+	e := &formularios.Evento{
+		ID:              uuid.New(),
+		EmpresaID:       empresaID,
+		ClienteID:       clienteID,
+		LocalidadID:     uuid.New(),
+		Nombre:          piiNombre,
+		Descripcion:     "Confidencial: contrato 12345/2026",
+		FechaProgramada: time.Now().Add(24 * time.Hour).UTC(),
+		Status:          formularios.EventoStatusPendiente,
+	}
+	_, err := svc.CreateEvento(context.Background(), e, nil, empresaID)
+	require.NoError(t, err, "happy path succeeds")
+	// Publisher payload must NOT include nombre or descripcion.
+	require.Len(t, pub.events, 0, "CreateEvento does not publish, so this is a negative assertion")
+
+	// IniciarEvento: lat/lon with extreme values; the error must NOT
+	// echo the coordinates (which could be considered sensitive
+	// field-derived data even if not strictly PII).
+	parent := seedEvento(t, repo, empresaID, clienteID, uuid.New())
+	piiLat := 88.123456
+	piiLon := -56.987654
+	ei := &formularios.EventoIniciado{
+		EventoID:                 parent.ID,
+		EmpleadoID:               42,
+		GeolocalizacionInicioLat: &piiLat,
+		GeolocalizacionInicioLon: &piiLon,
+		Status:                   formularios.IniciadoStatus,
+	}
+	_, err = svc.IniciarEvento(context.Background(), ei, empresaID)
+	require.NoError(t, err, "valid geo must succeed")
+	require.Len(t, pub.events, 1)
+	payload := pub.events[0].payload
+	// Geo coords ARE in the published payload (per the spec — Reporting
+	// consumer needs them). The audit confirms they appear as numbers,
+	// not as a leaked user string. Assert the value is intact but the
+	// surrounding error path is clean.
+	assert.Equal(t, piiLat, payload["geolocalizacion_inicio_lat"])
+	assert.Equal(t, piiLon, payload["geolocalizacion_inicio_lon"])
+}

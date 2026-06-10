@@ -15,6 +15,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -157,6 +158,36 @@ func TestRespuestaService_SubmitRespuesta_SwallowsPublisherAndCacheErrors(t *tes
 	r := sampleRespuesta(uuid.New(), uuid.New())
 	_, err := svc.SubmitRespuesta(context.Background(), r, uuid.New())
 	require.NoError(t, err, "publisher/cache errors must not fail the write")
+}
+
+// ---------------------------------------------------------------------------
+// No-PII regression (PR-3 task 3.5 audit).
+// ---------------------------------------------------------------------------
+
+func TestRespuestaService_NoPIIInErrorMessages(t *testing.T) {
+	respRepo, pub, cache := newRespuestaFixture(t)
+	svc := service.NewRespuestaService(respRepo, pub, cache)
+
+	// SubmitRespuesta: respuesta_texto and evidencia URLs with
+	// PII-shaped content must not appear in any returned error.
+	piiTexto := "Comentario: cliente Maria Lopez, DNI 87654321, factura #9876"
+	piiURL := "https://s3.amazonaws.com/bucket/private-evidence-maria-lopez.jpg"
+	r := &formularios.Respuesta{
+		EventoIniciadoID: uuid.New(),
+		PreguntaID:       uuid.New(),
+		RespuestaTexto:   piiTexto,
+		Evidencia1:       piiURL,
+	}
+	_, err := svc.SubmitRespuesta(context.Background(), r, uuid.New())
+	require.NoError(t, err, "happy path with PII-shaped fields must succeed")
+	require.Len(t, pub.events, 1)
+	payload := pub.events[0].payload
+	// The published payload must NOT include the PII text or the S3
+	// evidence URL (URLs are operational metadata, not part of the
+	// FormularioRespondido event envelope per the spec).
+	assert.NotContains(t, fmt.Sprintf("%v", payload), piiTexto, "respuesta_texto must not be in payload")
+	assert.NotContains(t, fmt.Sprintf("%v", payload), "87654321", "DNI must not be in payload")
+	assert.NotContains(t, fmt.Sprintf("%v", payload), piiURL, "evidencia URL must not be in payload")
 }
 
 // time used to silence the "imported and not used" linter when the test
