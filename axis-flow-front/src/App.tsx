@@ -28,6 +28,10 @@ import { CertificadoPage } from '@/features/cursos/pages/CertificadoPage'
 import { JobBoardPage } from '@/features/recruitment/pages/JobBoardPage'
 import { RecruiterPage } from '@/features/recruitment/pages/RecruiterPage'
 import { PipelinePage } from '@/features/recruitment/pages/PipelinePage'
+import { EmployeePage } from '@/features/atencion/pages/EmployeePage'
+import { HRPage } from '@/features/atencion/pages/HRPage'
+import { ClientPage } from '@/features/atencion/pages/ClientPage'
+import { SupervisorPage } from '@/features/atencion/pages/SupervisorPage'
 
 // Role codes as stored in identity_roles.code and embedded in the JWT.
 const ADMIN_ROLES = ['ADMIN_CHECK_ON', 'ADMINISTRADOR'] as const
@@ -226,6 +230,40 @@ function App() {
         element={
           <ProtectedRoute>
             <PipelinePage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Atencion routes */}
+      <Route
+        path="/atencion/empleado"
+        element={
+          <ProtectedRoute>
+            <EmployeePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/atencion/rh"
+        element={
+          <ProtectedRoute>
+            <HRPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/atencion/cliente"
+        element={
+          <ProtectedRoute>
+            <ClientPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/atencion/supervisor"
+        element={
+          <ProtectedRoute>
+            <SupervisorPage />
           </ProtectedRoute>
         }
       />
