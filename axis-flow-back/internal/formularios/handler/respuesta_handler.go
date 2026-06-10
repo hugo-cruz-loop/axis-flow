@@ -14,18 +14,19 @@
 //	POST /respuesta                          — SubmitRespuesta (JSON or multipart)
 //	GET  /respuesta/reporte/pregunta/{id}/pdf — GetReportePDF (binary PDF)
 //
-// Multipart strategy (PR-4):
+// Multipart strategy (PR-4 AMEND — FIX 3):
 //
 //   - Max 10 MB total request size (r.ParseMultipartForm(MaxMultipartMemory)).
 //   - Max 3 evidence files (evidencia1, evidencia2, evidencia3).
 //   - Whitelisted content types: image/jpeg, image/png, image/webp,
 //     application/pdf. Anything else → 422 with "disallowed content-type".
-//   - PR-4 does NOT upload to S3 — the handler only validates the
-//     upload and sets a synthetic marker on the respuesta struct
-//     (so the PR-8 verify phase can confirm the validation seam).
-//     PR-6 will close the loop with the real S3 upload inside the
-//     pdf_service.ReportStorage port. The handler's behaviour for
-//     PR-4 is documented in Deviation #4.
+//   - Validation failures still return 422 with a specific message.
+//   - ON VALIDATION SUCCESS the multipart path returns 501 with code
+//     MULTIPART_UPLOAD_NOT_IMPLEMENTED — the S3-backed evidence upload
+//     is wired in PR-6 (PDF/S3 Hardening). Until then, the multipart
+//     path must NOT touch the database / service (no synthetic
+//     "multipart:pending:evidenciaN" markers may land in production
+//     rows). The JSON path continues to work unchanged.
 //
 // PDF strategy (PR-4 AMEND — FIX 2):
 //
@@ -218,63 +219,65 @@ func (h *RespuestaHandler) submitRespuestaJSON(w http.ResponseWriter, r *http.Re
 }
 
 func (h *RespuestaHandler) submitRespuestaMultipart(w http.ResponseWriter, r *http.Request, params map[string]string) {
+	// PR-4 AMEND (FIX 3): the multipart path is now a TWO-PHASE
+	// handler:
+	//
+	//   PHASE 1 — Validation (max 10MB, max 3 evidence files,
+	//             whitelisted content types, required text fields).
+	//             Validation failures still return 422 with a
+	//             specific message. NO state change.
+	//
+	//   PHASE 2 — 501 Not Implemented (code
+	//             MULTIPART_UPLOAD_NOT_IMPLEMENTED). The S3-backed
+	//             evidence upload is wired in PR-6 (PDF/S3
+	//             Hardening). Until then, this handler must NOT
+	//             touch the database / service — the synthetic
+	//             "multipart:pending:evidenciaN:filename" markers
+	//             from PR-4 are NOT allowed to land in production
+	//             rows. The JSON path continues to work unchanged.
+	//
+	// The service.SubmitRespuesta call is removed entirely from this
+	// code path; the recording stub in the tests uses t.Fatal() if
+	// it is invoked, so any regression is caught by the test suite.
+
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid multipart payload")
 		return
 	}
 
-	iniciadoID, err := parseUUIDField(r, "evento_iniciado_id")
-	if err != nil {
+	if _, err := parseUUIDField(r, "evento_iniciado_id"); err != nil {
 		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "evento_iniciado_id is required")
 		return
 	}
-	formID, err := parseUUIDField(r, "formulario_id")
-	if err != nil {
+	if _, err := parseUUIDField(r, "formulario_id"); err != nil {
 		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "formulario_id is required")
 		return
 	}
-	pregID, err := parseUUIDField(r, "pregunta_id")
-	if err != nil {
+	if _, err := parseUUIDField(r, "pregunta_id"); err != nil {
 		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "pregunta_id is required")
 		return
 	}
-	respuestaTexto := r.FormValue("respuesta_texto")
-	respuestaLista := json.RawMessage(r.FormValue("respuesta_lista"))
-	if len(respuestaLista) == 0 {
+	if len(json.RawMessage(r.FormValue("respuesta_lista"))) == 0 {
 		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "respuesta_lista is required")
 		return
 	}
 
-	// Validate evidence files. PR-4 enforces: max 3, whitelisted
-	// content types. The actual upload to S3 is the job of PR-6
-	// (ReportStorage port); here we just validate and set a
-	// synthetic marker so the service has a non-empty URL field
-	// that can be re-validated downstream.
-	ev1, ev2, ev3, err := collectMultipartEvidencias(r)
+	// Validate evidence files. Validation failures (max 3,
+	// whitelisted content types) → 422 with the specific message.
+	_, _, _, err := collectMultipartEvidencias(r)
 	if err != nil {
 		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", err.Error())
 		return
 	}
 
-	tenantID, _ := extractTenantID(r)
-	r2 := &formularios.Respuesta{
-		EventoIniciadoID: iniciadoID,
-		PreguntaID:       pregID,
-		RespuestaTexto:   respuestaTexto,
-		RespuestaLista:   respuestaLista,
-		Evidencia1:       ev1,
-		Evidencia2:       ev2,
-		Evidencia3:       ev3,
-		DocumentoURL:     r.FormValue("documento_url"),
-	}
-
-	created, err := h.svc.SubmitRespuesta(r.Context(), r2, tenantID)
-	if err != nil {
-		mapFormulariosError(w, err)
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, toRespuestaResponseDTO(created, formID, nil))
+	// PHASE 2: every validation gate has passed. The multipart path
+	// cannot persist to the database until PR-6 wires the S3 upload;
+	// the handler returns 501 Not Implemented and a clear error code
+	// so the frontend can show a friendly "evidence upload coming
+	// soon" message. The request body is fully parsed and validated
+	// at this point so the client can see exactly which field is
+	// offending (e.g. content-type whitelist, file count).
+	respondError(w, http.StatusNotImplemented, "MULTIPART_UPLOAD_NOT_IMPLEMENTED", "multipart upload pending PR-6 storage backend")
 }
 
 // collectMultipartEvidencias walks evidencia1..evidencia3 form-file

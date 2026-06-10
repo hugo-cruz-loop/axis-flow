@@ -245,22 +245,21 @@ func extFor(ct string) string {
 	return ".bin"
 }
 
-func TestSubmitRespuesta_Multipart_ValidRequest_Returns201WithData(t *testing.T) {
+// TestSubmitRespuesta_Multipart_ValidRequest_Returns501 verifies the
+// PR-4 AMEND (FIX 3) behaviour: once multipart validation succeeds,
+// the handler returns 501 Not Implemented (code
+// MULTIPART_UPLOAD_NOT_IMPLEMENTED) because the S3-backed evidence
+// upload is wired in PR-6, not PR-4. The test ALSO asserts the
+// service.SubmitRespuesta is NEVER called on the multipart path —
+// the synthetic "multipart:pending:evidenciaN" markers from PR-4
+// must not be allowed to land in production rows.
+func TestSubmitRespuesta_Multipart_ValidRequest_Returns501(t *testing.T) {
 	tenantID := uuid.New()
 	userID := uuid.New()
-	created := &formularios.Respuesta{ID: uuid.New()}
 	svc := &mockRespuestaService{
-		submitRespuestaFn: func(_ context.Context, r *formularios.Respuesta, _ uuid.UUID) (*formularios.Respuesta, error) {
-			require.NotEqual(t, uuid.Nil, r.EventoIniciadoID, "iniciadoID must be parsed from form field")
-			require.NotEqual(t, uuid.Nil, r.PreguntaID, "preguntaID must be parsed from form field")
-			require.Equal(t, "ok", r.RespuestaTexto)
-			// Multipart: evidencia1/2/3 URLs are NOT stored directly;
-			// PR-6 will wire S3 upload. For PR-4 the handler records
-			// only that files were present (synthetic marker).
-			assert.NotEmpty(t, r.Evidencia1, "evidencia1 marker must be set")
-			assert.NotEmpty(t, r.Evidencia2)
-			assert.NotEmpty(t, r.Evidencia3)
-			return created, nil
+		submitRespuestaFn: func(_ context.Context, _ *formularios.Respuesta, _ uuid.UUID) (*formularios.Respuesta, error) {
+			t.Fatal("svc.SubmitRespuesta must NOT be called on multipart — the handler returns 501 before the service is touched (FIX 3)")
+			return nil, nil
 		},
 	}
 	pdf := &mockPDFService{}
@@ -273,13 +272,17 @@ func TestSubmitRespuesta_Multipart_ValidRequest_Returns201WithData(t *testing.T)
 	w := httptest.NewRecorder()
 	h.SubmitRespuesta(w, r)
 
-	require.Equal(t, http.StatusCreated, w.Code, "happy multipart path → 201, body: %s", w.Body.String())
+	require.Equal(t, http.StatusNotImplemented, w.Code,
+		"validated multipart → 501 (NOT 201), body: %s", w.Body.String())
+
 	var env map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	assert.Equal(t, true, env["success"])
-	data, ok := env["data"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, created.ID.String(), data["id"])
+	assert.Equal(t, false, env["success"])
+	errObj, ok := env["error"].(map[string]any)
+	require.True(t, ok, "expected error object, got %T", env["error"])
+	assert.Equal(t, "MULTIPART_UPLOAD_NOT_IMPLEMENTED", errObj["code"],
+		"error code must be the SCREAMING_SNAKE constant matching 09's convention")
+	assert.Equal(t, "multipart upload pending PR-6 storage backend", errObj["message"])
 }
 
 func TestSubmitRespuesta_Multipart_DisallowedContentType_Returns422(t *testing.T) {
