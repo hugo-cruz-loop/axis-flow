@@ -1,9 +1,9 @@
-// Package formularios_test covers the in-memory formulario repository behaviour.
+// Package repository_test covers the in-memory formulario repository behaviour.
 //
 // PR-2 (Repositories) — task 2.1. Mirrors the InMem* pattern from
 // internal/atencionseguimiento/repository/ so the pgx adapter can be swapped in
 // later by the integration test layer without changing service code.
-package formularios_test
+package repository_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"axis-flow-back/internal/formularios"
+	"axis-flow-back/internal/formularios/repository"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -21,9 +22,9 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
-func newTestInMemFormularioRepo(t *testing.T) *formularios.InMemFormularioRepository {
+func newTestInMemFormularioRepo(t *testing.T) *repository.InMemFormularioRepository {
 	t.Helper()
-	return formularios.NewInMemFormularioRepository()
+	return repository.NewInMemFormularioRepository()
 }
 
 func sampleFormulario(empresaID uuid.UUID) *formularios.Formulario {
@@ -62,7 +63,8 @@ func TestInMemFormularioRepositoryCreateAndGetByIDRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// IDOR: GetByID with the wrong empresa_id must return ErrNotFound (no leak).
+// IDOR: GetByID with the wrong empresa_id must return formularios.ErrNotFound
+// (no leak).
 // ---------------------------------------------------------------------------
 
 func TestInMemFormularioRepositoryGetByIDRejectsForeignEmpresa(t *testing.T) {
@@ -195,4 +197,4 @@ func TestInMemFormularioRepositoryListByEmpresaPaginates(t *testing.T) {
 // the pgx adapter satisfies, so services can swap at wiring time.
 // ---------------------------------------------------------------------------
 
-var _ formularios.FormularioRepository = (*formularios.InMemFormularioRepository)(nil)
+var _ formularios.FormularioRepository = (*repository.InMemFormularioRepository)(nil)

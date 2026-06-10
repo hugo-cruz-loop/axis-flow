@@ -1,10 +1,12 @@
-package formularios
+package repository
 
 import (
 	"context"
 	"sort"
 	"sync"
 	"time"
+
+	"axis-flow-back/internal/formularios"
 
 	"github.com/google/uuid"
 )
@@ -23,30 +25,30 @@ import (
 // for unit tests.
 type InMemPreguntaRepository struct {
 	mu        sync.RWMutex
-	preguntas map[uuid.UUID]*Pregunta
+	preguntas map[uuid.UUID]*formularios.Pregunta
 }
 
 // NewInMemPreguntaRepository creates an empty in-memory pregunta repository.
 func NewInMemPreguntaRepository() *InMemPreguntaRepository {
-	return &InMemPreguntaRepository{preguntas: make(map[uuid.UUID]*Pregunta)}
+	return &InMemPreguntaRepository{preguntas: make(map[uuid.UUID]*formularios.Pregunta)}
 }
 
 // validTipoPregunta mirrors the SQL CHECK constraint
 // chk_formularios_pregunta_tipo CHECK (tipo_pregunta IN (1, 2, 3, 5, 8, 11)).
 func validTipoPregunta(t int) bool {
 	switch t {
-	case TipoPreguntaTexto, TipoPreguntaCheckbox, TipoPreguntaRating,
-		TipoPreguntaMatriz, TipoPreguntaFoto, TipoPreguntaFirma:
+	case formularios.TipoPreguntaTexto, formularios.TipoPreguntaCheckbox, formularios.TipoPreguntaRating,
+		formularios.TipoPreguntaMatriz, formularios.TipoPreguntaFoto, formularios.TipoPreguntaFirma:
 		return true
 	}
 	return false
 }
 
 // Create inserts a new Pregunta. If ID is uuid.Nil, a fresh ID is generated.
-// Returns ErrInvalidInput if tipo_pregunta is outside the allowed set.
-func (r *InMemPreguntaRepository) Create(_ context.Context, p *Pregunta) error {
+// Returns formularios.ErrInvalidInput if tipo_pregunta is outside the allowed set.
+func (r *InMemPreguntaRepository) Create(_ context.Context, p *formularios.Pregunta) error {
 	if !validTipoPregunta(p.TipoPregunta) {
-		return ErrInvalidInput
+		return formularios.ErrInvalidInput
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -67,11 +69,11 @@ func (r *InMemPreguntaRepository) Create(_ context.Context, p *Pregunta) error {
 
 // ListByFormulario returns the preguntas for a given formulario, ordered by
 // `orden` ASC. Returns an empty slice for unknown formularios.
-func (r *InMemPreguntaRepository) ListByFormulario(_ context.Context, formularioID uuid.UUID) ([]*Pregunta, error) {
+func (r *InMemPreguntaRepository) ListByFormulario(_ context.Context, formularioID uuid.UUID) ([]*formularios.Pregunta, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var out []*Pregunta
+	var out []*formularios.Pregunta
 	for _, p := range r.preguntas {
 		if p.FormularioID != formularioID {
 			continue
@@ -83,7 +85,7 @@ func (r *InMemPreguntaRepository) ListByFormulario(_ context.Context, formulario
 		return out[i].Orden < out[j].Orden
 	})
 	if out == nil {
-		return []*Pregunta{}, nil
+		return []*formularios.Pregunta{}, nil
 	}
 	return out, nil
 }

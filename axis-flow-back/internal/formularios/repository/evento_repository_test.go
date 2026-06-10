@@ -1,4 +1,4 @@
-// Package formularios_test covers the in-memory evento repository behaviour.
+// Package repository_test covers the in-memory evento repository behaviour.
 //
 // PR-2 (Repositories) — task 2.3.
 //
@@ -6,7 +6,7 @@
 // inserts both the evento header and the M:N association rows in a single
 // logical operation; the InMem adapter wraps this with the same UNIQUE
 // (evento_id, formulario_id) constraint the SQL schema enforces.
-package formularios_test
+package repository_test
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"axis-flow-back/internal/formularios"
+	"axis-flow-back/internal/formularios/repository"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -24,9 +25,9 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
-func newTestInMemEventoRepo(t *testing.T) *formularios.InMemEventoRepository {
+func newTestInMemEventoRepo(t *testing.T) *repository.InMemEventoRepository {
 	t.Helper()
-	return formularios.NewInMemEventoRepository()
+	return repository.NewInMemEventoRepository()
 }
 
 func sampleEvento(empresaID, clienteID, localidadID uuid.UUID) *formularios.Evento {
@@ -83,7 +84,7 @@ func TestInMemEventoRepositoryCreateAndGetByIDRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// IDOR: GetByID with the wrong empresa_id must return ErrNotFound.
+// IDOR: GetByID with the wrong empresa_id must return formularios.ErrNotFound.
 // ---------------------------------------------------------------------------
 
 func TestInMemEventoRepositoryGetByIDRejectsForeignEmpresa(t *testing.T) {
@@ -109,7 +110,7 @@ func TestInMemEventoRepositoryGetByIDReturnsNotFoundForMissingID(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // UNIQUE (evento_id, formulario_id): second insert with the same pair must
-// fail with ErrConflict.
+// fail with formularios.ErrConflict.
 // ---------------------------------------------------------------------------
 
 func TestInMemEventoRepositoryCreateRejectsDuplicateEventoFormularioPair(t *testing.T) {
@@ -297,4 +298,4 @@ func TestInMemEventoRepositoryCreateIniciadoAcceptsNullGeolocation(t *testing.T)
 // Compile-time port satisfaction.
 // ---------------------------------------------------------------------------
 
-var _ formularios.EventoRepository = (*formularios.InMemEventoRepository)(nil)
+var _ formularios.EventoRepository = (*repository.InMemEventoRepository)(nil)

@@ -1,4 +1,4 @@
-package formularios
+package repository
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"axis-flow-back/internal/formularios"
 
 	"github.com/google/uuid"
 )
@@ -24,12 +26,12 @@ import (
 // InMemRespuestaRepository is a goroutine-safe, in-memory RespuestaRepository.
 type InMemRespuestaRepository struct {
 	mu         sync.RWMutex
-	respuestas map[uuid.UUID]*Respuesta
+	respuestas map[uuid.UUID]*formularios.Respuesta
 }
 
 // NewInMemRespuestaRepository creates an empty in-memory respuesta repository.
 func NewInMemRespuestaRepository() *InMemRespuestaRepository {
-	return &InMemRespuestaRepository{respuestas: make(map[uuid.UUID]*Respuesta)}
+	return &InMemRespuestaRepository{respuestas: make(map[uuid.UUID]*formularios.Respuesta)}
 }
 
 // validRespuestaLat mirrors chk_formularios_respuestas_geo_lat.
@@ -56,12 +58,12 @@ func validRespuestaLon(lon *float64) bool {
 //
 // If ID is uuid.Nil, a fresh ID is generated. CreatedAt / UpdatedAt are
 // stamped if zero.
-func (r *InMemRespuestaRepository) Create(_ context.Context, resp *Respuesta) error {
+func (r *InMemRespuestaRepository) Create(_ context.Context, resp *formularios.Respuesta) error {
 	if !validRespuestaLat(resp.GeolocalizacionRespuestaLat) {
-		return fmt.Errorf("%w: geolocalizacion_respuesta_lat out of range", ErrInvalidInput)
+		return fmt.Errorf("%w: geolocalizacion_respuesta_lat out of range", formularios.ErrInvalidInput)
 	}
 	if !validRespuestaLon(resp.GeolocalizacionRespuestaLon) {
-		return fmt.Errorf("%w: geolocalizacion_respuesta_lon out of range", ErrInvalidInput)
+		return fmt.Errorf("%w: geolocalizacion_respuesta_lon out of range", formularios.ErrInvalidInput)
 	}
 
 	r.mu.Lock()
@@ -84,11 +86,11 @@ func (r *InMemRespuestaRepository) Create(_ context.Context, resp *Respuesta) er
 
 // ListByIniciado returns all respuestas for the given iniciado, ordered by
 // created_at ASC. Returns an empty slice (not nil) for unknown iniciados.
-func (r *InMemRespuestaRepository) ListByIniciado(_ context.Context, iniciadoID uuid.UUID) ([]*Respuesta, error) {
+func (r *InMemRespuestaRepository) ListByIniciado(_ context.Context, iniciadoID uuid.UUID) ([]*formularios.Respuesta, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var out []*Respuesta
+	var out []*formularios.Respuesta
 	for _, resp := range r.respuestas {
 		if resp.EventoIniciadoID != iniciadoID {
 			continue
@@ -100,7 +102,7 @@ func (r *InMemRespuestaRepository) ListByIniciado(_ context.Context, iniciadoID 
 		return out[i].CreatedAt.Before(out[j].CreatedAt)
 	})
 	if out == nil {
-		return []*Respuesta{}, nil
+		return []*formularios.Respuesta{}, nil
 	}
 	return out, nil
 }

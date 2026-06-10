@@ -1,10 +1,20 @@
-package formularios
+// Package repository provides pgx-backed and in-memory implementations of the
+// formularios repository interfaces, plus a Redis cache invalidator.
+//
+// Mirrors the layout of internal/atencionseguimiento/repository/ (PR-2 of
+// 09_AtencionSeguimiento_Service_Spec): the same file holds both a
+// PgxXxxRepository (production) and an InMemXxxRepository (unit tests),
+// satisfying the formularios port interfaces declared in
+// internal/formularios/domain.go.
+package repository
 
 import (
 	"context"
 	"sort"
 	"sync"
 	"time"
+
+	"axis-flow-back/internal/formularios"
 
 	"github.com/google/uuid"
 )
@@ -19,21 +29,21 @@ import (
 
 // InMemFormularioRepository is a goroutine-safe, in-memory FormularioRepository
 // for unit tests. It enforces the same IDOR rules as the pgx adapter: any
-// read that does not match the calling empresa_id returns ErrNotFound (never
-// ErrForbidden) to avoid leaking row existence.
+// read that does not match the calling empresa_id returns formularios.ErrNotFound
+// (never formularios.ErrForbidden) to avoid leaking row existence.
 type InMemFormularioRepository struct {
 	mu          sync.RWMutex
-	formularios map[uuid.UUID]*Formulario
+	formularios map[uuid.UUID]*formularios.Formulario
 }
 
 // NewInMemFormularioRepository creates an empty in-memory formulario repository.
 func NewInMemFormularioRepository() *InMemFormularioRepository {
-	return &InMemFormularioRepository{formularios: make(map[uuid.UUID]*Formulario)}
+	return &InMemFormularioRepository{formularios: make(map[uuid.UUID]*formularios.Formulario)}
 }
 
 // Create inserts a new Formulario. If ID is uuid.Nil, a fresh ID is generated.
 // CreatedAt / UpdatedAt are stamped if zero.
-func (r *InMemFormularioRepository) Create(_ context.Context, f *Formulario) error {
+func (r *InMemFormularioRepository) Create(_ context.Context, f *formularios.Formulario) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if f.ID == uuid.Nil {
@@ -52,14 +62,14 @@ func (r *InMemFormularioRepository) Create(_ context.Context, f *Formulario) err
 }
 
 // GetByID returns the Formulario if it exists AND belongs to empresaID.
-// Any mismatch (missing row or wrong tenant) returns ErrNotFound to avoid
-// leaking the existence of a foreign-empresa row.
-func (r *InMemFormularioRepository) GetByID(_ context.Context, id, empresaID uuid.UUID) (*Formulario, error) {
+// Any mismatch (missing row or wrong tenant) returns formularios.ErrNotFound to
+// avoid leaking the existence of a foreign-empresa row.
+func (r *InMemFormularioRepository) GetByID(_ context.Context, id, empresaID uuid.UUID) (*formularios.Formulario, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	f, ok := r.formularios[id]
 	if !ok || f.EmpresaID != empresaID {
-		return nil, ErrNotFound
+		return nil, formularios.ErrNotFound
 	}
 	cp := *f
 	return &cp, nil
@@ -67,11 +77,11 @@ func (r *InMemFormularioRepository) GetByID(_ context.Context, id, empresaID uui
 
 // ListByEmpresa returns paginated formularios for an empresa, optionally
 // filtered by activo. Ordered by created_at DESC.
-func (r *InMemFormularioRepository) ListByEmpresa(_ context.Context, empresaID uuid.UUID, activo *bool, page, pageSize int) ([]*Formulario, int, error) {
+func (r *InMemFormularioRepository) ListByEmpresa(_ context.Context, empresaID uuid.UUID, activo *bool, page, pageSize int) ([]*formularios.Formulario, int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var filtered []*Formulario
+	var filtered []*formularios.Formulario
 	for _, f := range r.formularios {
 		if f.EmpresaID != empresaID {
 			continue
@@ -94,7 +104,7 @@ func (r *InMemFormularioRepository) ListByEmpresa(_ context.Context, empresaID u
 	}
 	offset := (page - 1) * pageSize
 	if offset >= total {
-		return []*Formulario{}, total, nil
+		return []*formularios.Formulario{}, total, nil
 	}
 	end := offset + pageSize
 	if end > total {

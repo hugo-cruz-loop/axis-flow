@@ -1,7 +1,7 @@
-// Package formularios_test covers the in-memory pregunta repository behaviour.
+// Package repository_test covers the in-memory pregunta repository behaviour.
 //
 // PR-2 (Repositories) — task 2.2.
-package formularios_test
+package repository_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"axis-flow-back/internal/formularios"
+	"axis-flow-back/internal/formularios/repository"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -19,9 +20,9 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
-func newTestInMemPreguntaRepo(t *testing.T) *formularios.InMemPreguntaRepository {
+func newTestInMemPreguntaRepo(t *testing.T) *repository.InMemPreguntaRepository {
 	t.Helper()
-	return formularios.NewInMemPreguntaRepository()
+	return repository.NewInMemPreguntaRepository()
 }
 
 func samplePregunta(formularioID uuid.UUID, orden int, tipo int) *formularios.Pregunta {
@@ -169,4 +170,4 @@ func TestInMemPreguntaRepositoryCreatePersistsRespuestaPredefinidaJSON(t *testin
 // Compile-time port satisfaction.
 // ---------------------------------------------------------------------------
 
-var _ formularios.PreguntaRepository = (*formularios.InMemPreguntaRepository)(nil)
+var _ formularios.PreguntaRepository = (*repository.InMemPreguntaRepository)(nil)

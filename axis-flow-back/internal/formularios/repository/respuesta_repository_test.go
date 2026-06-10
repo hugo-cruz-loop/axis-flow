@@ -1,11 +1,11 @@
-// Package formularios_test covers the in-memory respuesta repository behaviour.
+// Package repository_test covers the in-memory respuesta repository behaviour.
 //
 // PR-2 (Repositories) — task 2.4.
 //
 // RespuestaRepository handles answers captured in the field during a running
 // EventoIniciado. The repository stores VARCHAR paths for evidence URLs only —
 // the S3 upload itself is a service-layer concern (PR-3).
-package formularios_test
+package repository_test
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"axis-flow-back/internal/formularios"
+	"axis-flow-back/internal/formularios/repository"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -24,9 +25,9 @@ import (
 // helpers
 // ---------------------------------------------------------------------------
 
-func newTestInMemRespuestaRepo(t *testing.T) *formularios.InMemRespuestaRepository {
+func newTestInMemRespuestaRepo(t *testing.T) *repository.InMemRespuestaRepository {
 	t.Helper()
-	return formularios.NewInMemRespuestaRepository()
+	return repository.NewInMemRespuestaRepository()
 }
 
 func sampleRespuesta(iniciadoID, preguntaID uuid.UUID) *formularios.Respuesta {
@@ -220,4 +221,4 @@ func TestInMemRespuestaRepositoryCreateAcceptsNullGeolocation(t *testing.T) {
 // Compile-time port satisfaction.
 // ---------------------------------------------------------------------------
 
-var _ formularios.RespuestaRepository = (*formularios.InMemRespuestaRepository)(nil)
+var _ formularios.RespuestaRepository = (*repository.InMemRespuestaRepository)(nil)

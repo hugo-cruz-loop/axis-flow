@@ -1,4 +1,4 @@
-package formularios
+package repository
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"axis-flow-back/internal/formularios"
 
 	"github.com/google/uuid"
 )
@@ -30,24 +32,24 @@ import (
 // InMemEventoRepository is a goroutine-safe, in-memory EventoRepository.
 type InMemEventoRepository struct {
 	mu               sync.RWMutex
-	eventos          map[uuid.UUID]*Evento
+	eventos          map[uuid.UUID]*formularios.Evento
 	asociaciones     map[uuid.UUID]map[uuid.UUID]struct{} // eventoID -> set of formularioID
-	eventosIniciados map[uuid.UUID]*EventoIniciado
+	eventosIniciados map[uuid.UUID]*formularios.EventoIniciado
 }
 
 // NewInMemEventoRepository creates an empty in-memory evento repository.
 func NewInMemEventoRepository() *InMemEventoRepository {
 	return &InMemEventoRepository{
-		eventos:          make(map[uuid.UUID]*Evento),
+		eventos:          make(map[uuid.UUID]*formularios.Evento),
 		asociaciones:     make(map[uuid.UUID]map[uuid.UUID]struct{}),
-		eventosIniciados: make(map[uuid.UUID]*EventoIniciado),
+		eventosIniciados: make(map[uuid.UUID]*formularios.EventoIniciado),
 	}
 }
 
 // validEventoStatus mirrors the SQL CHECK on eventos_evento.status.
 func validEventoStatus(s string) bool {
 	switch s {
-	case EventoStatusPendiente, EventoStatusIniciado, EventoStatusCompletado, EventoStatusCancelado:
+	case formularios.EventoStatusPendiente, formularios.EventoStatusIniciado, formularios.EventoStatusCompletado, formularios.EventoStatusCancelado:
 		return true
 	}
 	return false
@@ -56,7 +58,7 @@ func validEventoStatus(s string) bool {
 // validIniciadoStatus mirrors the SQL CHECK on eventos_evento_iniciado.status.
 func validIniciadoStatus(s string) bool {
 	switch s {
-	case IniciadoStatus, CompletadoStatus, CanceladoStatus:
+	case formularios.IniciadoStatus, formularios.CompletadoStatus, formularios.CanceladoStatus:
 		return true
 	}
 	return false
@@ -81,16 +83,16 @@ func validLon(lon *float64) bool {
 // Create inserts a new Evento header plus one M:N association row per
 // formularioID. Enforces the (evento_id, formulario_id) UNIQUE constraint
 // in-memory. If the header already exists with the same ID, returns
-// ErrConflict.
-func (r *InMemEventoRepository) Create(_ context.Context, e *Evento, formularioIDs []uuid.UUID) error {
+// formularios.ErrConflict.
+func (r *InMemEventoRepository) Create(_ context.Context, e *formularios.Evento, formularioIDs []uuid.UUID) error {
 	if !validEventoStatus(e.Status) {
-		return fmt.Errorf("%w: invalid evento.status", ErrInvalidInput)
+		return fmt.Errorf("%w: invalid evento.status", formularios.ErrInvalidInput)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if _, exists := r.eventos[e.ID]; exists {
-		return fmt.Errorf("%w: evento %s already exists", ErrConflict, e.ID)
+		return fmt.Errorf("%w: evento %s already exists", formularios.ErrConflict, e.ID)
 	}
 
 	// Validate that all formularioIDs are unique and that the same
@@ -98,7 +100,7 @@ func (r *InMemEventoRepository) Create(_ context.Context, e *Evento, formularioI
 	seen := make(map[uuid.UUID]struct{}, len(formularioIDs))
 	for _, formID := range formularioIDs {
 		if _, dup := seen[formID]; dup {
-			return fmt.Errorf("%w: duplicate formulario_id %s in Create call", ErrConflict, formID)
+			return fmt.Errorf("%w: duplicate formulario_id %s in Create call", formularios.ErrConflict, formID)
 		}
 		seen[formID] = struct{}{}
 	}
@@ -121,14 +123,14 @@ func (r *InMemEventoRepository) Create(_ context.Context, e *Evento, formularioI
 }
 
 // GetByID returns the Evento if it exists AND belongs to empresaID. Any
-// mismatch returns ErrNotFound to avoid leaking the existence of a
-// foreign-empresa row.
-func (r *InMemEventoRepository) GetByID(_ context.Context, id, empresaID uuid.UUID) (*Evento, error) {
+// mismatch returns formularios.ErrNotFound to avoid leaking the existence of
+// a foreign-empresa row.
+func (r *InMemEventoRepository) GetByID(_ context.Context, id, empresaID uuid.UUID) (*formularios.Evento, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	e, ok := r.eventos[id]
 	if !ok || e.EmpresaID != empresaID {
-		return nil, ErrNotFound
+		return nil, formularios.ErrNotFound
 	}
 	cp := *e
 	return &cp, nil
@@ -136,11 +138,11 @@ func (r *InMemEventoRepository) GetByID(_ context.Context, id, empresaID uuid.UU
 
 // ListByEmpCte returns paginated eventos for a (empresa, cliente) pair,
 // optionally filtered by status, ordered by created_at DESC.
-func (r *InMemEventoRepository) ListByEmpCte(_ context.Context, empresaID, clienteID uuid.UUID, status *string, page, pageSize int) ([]*Evento, int, error) {
+func (r *InMemEventoRepository) ListByEmpCte(_ context.Context, empresaID, clienteID uuid.UUID, status *string, page, pageSize int) ([]*formularios.Evento, int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var filtered []*Evento
+	var filtered []*formularios.Evento
 	for _, e := range r.eventos {
 		if e.EmpresaID != empresaID || e.ClienteID != clienteID {
 			continue
@@ -163,7 +165,7 @@ func (r *InMemEventoRepository) ListByEmpCte(_ context.Context, empresaID, clien
 	}
 	offset := (page - 1) * pageSize
 	if offset >= total {
-		return []*Evento{}, total, nil
+		return []*formularios.Evento{}, total, nil
 	}
 	end := offset + pageSize
 	if end > total {
@@ -179,15 +181,15 @@ func (r *InMemEventoRepository) ListByEmpCte(_ context.Context, empresaID, clien
 // up the parent to confirm the caller's tenant scope is consistent — the
 // service layer is expected to have called GetByID with the same empresaID
 // before reaching this method).
-func (r *InMemEventoRepository) CreateIniciado(_ context.Context, i *EventoIniciado) error {
+func (r *InMemEventoRepository) CreateIniciado(_ context.Context, i *formularios.EventoIniciado) error {
 	if !validIniciadoStatus(i.Status) {
-		return fmt.Errorf("%w: invalid iniciado.status", ErrInvalidInput)
+		return fmt.Errorf("%w: invalid iniciado.status", formularios.ErrInvalidInput)
 	}
 	if !validLat(i.GeolocalizacionInicioLat) {
-		return fmt.Errorf("%w: geolocalizacion_inicio_lat out of range", ErrInvalidInput)
+		return fmt.Errorf("%w: geolocalizacion_inicio_lat out of range", formularios.ErrInvalidInput)
 	}
 	if !validLon(i.GeolocalizacionInicioLon) {
-		return fmt.Errorf("%w: geolocalizacion_inicio_lon out of range", ErrInvalidInput)
+		return fmt.Errorf("%w: geolocalizacion_inicio_lon out of range", formularios.ErrInvalidInput)
 	}
 
 	r.mu.Lock()
@@ -195,14 +197,14 @@ func (r *InMemEventoRepository) CreateIniciado(_ context.Context, i *EventoInici
 
 	parent, ok := r.eventos[i.EventoID]
 	if !ok {
-		return fmt.Errorf("%w: parent evento %s does not exist", ErrNotFound, i.EventoID)
+		return fmt.Errorf("%w: parent evento %s does not exist", formularios.ErrNotFound, i.EventoID)
 	}
 	// Cross-table IDOR: the service layer is responsible for confirming
 	// the parent evento belongs to the calling empresa. If the parent
 	// has a different empresa, treat the call as "not found" so the
 	// caller cannot probe the existence of a foreign-empresa row.
 	_ = parent // referenced for future use; the InMem impl relies on the
-	// service layer's pre-check. We do not return ErrForbidden here
+	// service layer's pre-check. We do not return formularios.ErrForbidden here
 	// because the iniciado row itself has no empresa_id column to compare
 	// against.
 
