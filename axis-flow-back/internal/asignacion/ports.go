@@ -2,6 +2,7 @@ package asignacion
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,6 +60,7 @@ type AssignmentService interface {
 type AssignmentEventPublisher interface {
 	PublishAsignacionModificada(ctx context.Context, event AsignacionModificadaEvent) error
 	PublishEvidenciaCargada(ctx context.Context, event EvidenciaCargadaEvent) error
+	PublishEmpleadoEvaluado(ctx context.Context, event EmpleadoEvaluadoEvent) error
 }
 
 // AssignmentCacheInvalidator invalidates cached assignment lookups after mutations.
@@ -70,4 +72,10 @@ type AssignmentCacheInvalidator interface {
 type AssignmentProvisioner interface {
 	ProvisionCreatedAssignment(ctx context.Context, assignment Assignment) (AssignmentProvisioningResult, error)
 	RefreshModifiedAssignment(ctx context.Context, assignment Assignment) (AssignmentProvisioningResult, error)
+}
+
+// EvidenceUploader uploads one evidence payload to durable storage and returns
+// the canonical public URL that should be persisted alongside the activity.
+type EvidenceUploader interface {
+	Upload(ctx context.Context, activityID uuid.UUID, slot int, content io.Reader, contentType, filename string) (canonicalURL string, err error)
 }

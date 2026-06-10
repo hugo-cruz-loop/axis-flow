@@ -333,3 +333,6 @@ func (eventPublisherStub) PublishAsignacionModificada(_ context.Context, _ asign
 func (eventPublisherStub) PublishEvidenciaCargada(_ context.Context, _ asignacion.EvidenciaCargadaEvent) error {
 	return nil
 }
+func (eventPublisherStub) PublishEmpleadoEvaluado(_ context.Context, _ asignacion.EmpleadoEvaluadoEvent) error {
+	return nil
+}

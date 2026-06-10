@@ -27,6 +27,8 @@ type Config struct {
 	EncryptionKey string
 	Storage       StorageConfig
 	Recruitment   RecruitmentConfig
+	// Asignacion holds Asignacion service event stream and S3 evidence config.
+	Asignacion AsignacionConfig
 	// PDF holds configuration for the PDF generation service (Gotenberg).
 	PDF PDFConfig
 }
@@ -119,6 +121,31 @@ type StorageConfig struct {
 	AWSSecretAccessKey string
 	// RekognitionEnabled enables AWS Rekognition face comparison. Default false.
 	RekognitionEnabled bool
+}
+
+// AsignacionConfig holds settings for the Asignacion service event stream
+// and S3-backed evidence storage.
+type AsignacionConfig struct {
+	// EventsStreamKey is the Redis Streams key for AssignmentEventPublisher.
+	// Loaded from ASIGNACION_EVENTS_STREAM_KEY. Default: "asignacion:events".
+	EventsStreamKey string
+	// EventsStreamMaxLen is the approximate cap on the events stream.
+	// Loaded from ASIGNACION_EVENTS_STREAM_MAXLEN. Default: 10000.
+	EventsStreamMaxLen int64
+	// EventsPublishTimeout bounds a single XADD. Default: 2s.
+	EventsPublishTimeout time.Duration
+	// AWSEvidenceBucketName is the S3 bucket for activity evidence photos.
+	// Loaded from AWS_EVIDENCE_BUCKET_NAME. Default: "checkon-evidences".
+	AWSEvidenceBucketName string
+	// AWSEvidenceKeyPrefix is the S3 key prefix for evidence objects.
+	// Loaded from AWS_EVIDENCE_KEY_PREFIX. Default: "evidencia".
+	AWSEvidenceKeyPrefix string
+	// AWSEvidencePublicBaseURL is the public CDN/S3 base URL for canonical evidence URLs.
+	// Loaded from AWS_EVIDENCE_PUBLIC_BASE_URL.
+	// Default: "https://checkon-evidences.s3.amazonaws.com".
+	AWSEvidencePublicBaseURL string
+	// AWSEvidenceUploadTimeout bounds a single S3 PutObject. Default: 10s.
+	AWSEvidenceUploadTimeout time.Duration
 }
 
 // Load reads all required environment variables and returns a validated Config.
@@ -292,6 +319,58 @@ func Load() (*Config, error) {
 			return "http://pdf-engine:3000"
 		}(),
 		GotenbergEnabled: os.Getenv("GOTENBERG_ENABLED") == "true",
+	}
+
+	// Asignacion service config.
+	cfg.Asignacion = AsignacionConfig{
+		EventsStreamKey: func() string {
+			if v := os.Getenv("ASIGNACION_EVENTS_STREAM_KEY"); v != "" {
+				return v
+			}
+			return "asignacion:events"
+		}(),
+		EventsStreamMaxLen: func() int64 {
+			if v := os.Getenv("ASIGNACION_EVENTS_STREAM_MAXLEN"); v != "" {
+				if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+					return n
+				}
+			}
+			return 10000
+		}(),
+		EventsPublishTimeout: func() time.Duration {
+			if v := os.Getenv("ASIGNACION_EVENTS_PUBLISH_TIMEOUT"); v != "" {
+				if d, err := time.ParseDuration(v); err == nil && d > 0 {
+					return d
+				}
+			}
+			return 2 * time.Second
+		}(),
+		AWSEvidenceBucketName: func() string {
+			if v := os.Getenv("AWS_EVIDENCE_BUCKET_NAME"); v != "" {
+				return v
+			}
+			return "checkon-evidences"
+		}(),
+		AWSEvidenceKeyPrefix: func() string {
+			if v := os.Getenv("AWS_EVIDENCE_KEY_PREFIX"); v != "" {
+				return v
+			}
+			return "evidencia"
+		}(),
+		AWSEvidencePublicBaseURL: func() string {
+			if v := os.Getenv("AWS_EVIDENCE_PUBLIC_BASE_URL"); v != "" {
+				return v
+			}
+			return "https://checkon-evidences.s3.amazonaws.com"
+		}(),
+		AWSEvidenceUploadTimeout: func() time.Duration {
+			if v := os.Getenv("AWS_EVIDENCE_UPLOAD_TIMEOUT"); v != "" {
+				if d, err := time.ParseDuration(v); err == nil && d > 0 {
+					return d
+				}
+			}
+			return 10 * time.Second
+		}(),
 	}
 
 	// EncryptionKey: required, must decode to exactly 32 bytes.

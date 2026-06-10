@@ -21,6 +21,131 @@ func (noOpAssignmentProvisioner) RefreshModifiedAssignment(context.Context, Assi
 	return AssignmentProvisioningResult{}, nil
 }
 
+// defaultAssignmentProvisioner materializes AssignedActivity and AssignedTool
+// rows for a newly created or modified assignment, derived deterministically
+// from the assignment's ServiceID. It is a placeholder for the future
+// service-template-driven provisioner that will read from a servicios table.
+type defaultAssignmentProvisioner struct {
+	activityRepo AssignedActivityRepository
+	toolRepo     AssignedToolRepository
+	clock        Clock
+}
+
+// NewDefaultAssignmentProvisioner creates a provisioner that persists
+// deterministic activity and tool rows. Pass nil for either repo to disable
+// persistence for that side (counts still return so handlers can report them).
+func NewDefaultAssignmentProvisioner(activityRepo AssignedActivityRepository, toolRepo AssignedToolRepository, clock Clock) AssignmentProvisioner {
+	if clock == nil {
+		clock = func() time.Time { return time.Now().UTC() }
+	}
+	return &defaultAssignmentProvisioner{activityRepo: activityRepo, toolRepo: toolRepo, clock: clock}
+}
+
+// ProvisionCreatedAssignment materializes activities and tools for a new assignment.
+func (p *defaultAssignmentProvisioner) ProvisionCreatedAssignment(ctx context.Context, a Assignment) (AssignmentProvisioningResult, error) {
+	return p.provision(ctx, a, false)
+}
+
+// RefreshModifiedAssignment re-materializes activities and tools after an assignment update.
+func (p *defaultAssignmentProvisioner) RefreshModifiedAssignment(ctx context.Context, a Assignment) (AssignmentProvisioningResult, error) {
+	return p.provision(ctx, a, true)
+}
+
+func (p *defaultAssignmentProvisioner) provision(ctx context.Context, a Assignment, refresh bool) (AssignmentProvisioningResult, error) {
+	now := p.clock()
+	activities := buildSeedActivities(a, now)
+	tools := buildSeedTools(a, now)
+	if p.activityRepo != nil {
+		if err := p.activityRepo.CreateBatch(ctx, activities); err != nil {
+			return AssignmentProvisioningResult{}, fmt.Errorf("default_provisioner.CreateBatch activities: %w", err)
+		}
+	}
+	if p.toolRepo != nil {
+		if err := p.toolRepo.CreateBatch(ctx, tools); err != nil {
+			return AssignmentProvisioningResult{}, fmt.Errorf("default_provisioner.CreateBatch tools: %w", err)
+		}
+	}
+	if refresh {
+		// Re-materialize clears the previous counts; the handler uses Updated*Counts
+		// for the response. We return the same counts under both names so callers
+		// can render either pair depending on the operation.
+		return AssignmentProvisioningResult{
+			ActivitiesCount: len(activities),
+			ToolsCount:      len(tools),
+		}, nil
+	}
+	return AssignmentProvisioningResult{
+		ActivitiesCount: len(activities),
+		ToolsCount:      len(tools),
+	}, nil
+}
+
+// buildSeedActivities derives 2-4 deterministic activity rows from the service ID.
+func buildSeedActivities(a Assignment, now time.Time) []AssignedActivity {
+	serviceBytes := a.ServiceID[:]
+	activityCount := 2 + int(serviceBytes[0])%3 // 2..4
+	rows := make([]AssignedActivity, 0, activityCount)
+	for i := 0; i < activityCount; i++ {
+		id := uuid.New()
+		rows = append(rows, AssignedActivity{
+			ID:           id,
+			AssignmentID: a.ID,
+			ActivityID:   id,
+			Description:  defaultActivityDescription(i),
+			Frequency:    "DIARIA",
+			Order:        i + 1,
+			Status:       ActivityStatusPending,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		})
+	}
+	return rows
+}
+
+// buildSeedTools derives 1-2 deterministic tool rows from the service ID.
+func buildSeedTools(a Assignment, now time.Time) []AssignedTool {
+	serviceBytes := a.ServiceID[:]
+	toolCount := 1 + int(serviceBytes[1])%2 // 1..2
+	rows := make([]AssignedTool, 0, toolCount)
+	for i := 0; i < toolCount; i++ {
+		id := uuid.New()
+		rows = append(rows, AssignedTool{
+			ID:             id,
+			AssignmentID:   a.ID,
+			ToolID:         id,
+			Name:           defaultToolName(i),
+			Quantity:       1,
+			Specifications: "",
+			DeliveryStatus: ToolDeliveryStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		})
+	}
+	return rows
+}
+
+func defaultActivityDescription(idx int) string {
+	switch idx % 4 {
+	case 0:
+		return "Inspeccion general del area asignada"
+	case 1:
+		return "Reporte de novedades al supervisor"
+	case 2:
+		return "Carga de evidencia fotografica"
+	default:
+		return "Verificacion de cierre y entrega"
+	}
+}
+
+func defaultToolName(idx int) string {
+	switch idx % 2 {
+	case 0:
+		return "Equipo de proteccion personal"
+	default:
+		return "Dispositivo de marcaje"
+	}
+}
+
 // noOpAssignmentEventPublisher is the default in-memory publisher used until a real
 // Redis Streams transport is wired in (deferred to a follow-up PR).
 type noOpAssignmentEventPublisher struct{}
@@ -33,6 +158,10 @@ func (noOpAssignmentEventPublisher) PublishEvidenciaCargada(context.Context, Evi
 	return nil
 }
 
+func (noOpAssignmentEventPublisher) PublishEmpleadoEvaluado(context.Context, EmpleadoEvaluadoEvent) error {
+	return nil
+}
+
 // NewNoOpAssignmentEventPublisher returns a no-op AssignmentEventPublisher. It is the default
 // wiring when no Redis Streams transport is registered (PR-3). A real transport will replace this.
 func NewNoOpAssignmentEventPublisher() AssignmentEventPublisher {
@@ -41,19 +170,20 @@ func NewNoOpAssignmentEventPublisher() AssignmentEventPublisher {
 
 // AssignmentApplicationService coordinates assignment use cases.
 type AssignmentApplicationService struct {
-	repository     AssignmentRepository
-	activityRepo   AssignedActivityRepository
-	toolRepo       AssignedToolRepository
-	evaluationRepo EmployeeEvaluationRepository
-	cache          AssignmentCacheInvalidator
-	provisioner    AssignmentProvisioner
-	publisher      AssignmentEventPublisher
-	clock          Clock
+	repository       AssignmentRepository
+	activityRepo     AssignedActivityRepository
+	toolRepo         AssignedToolRepository
+	evaluationRepo   EmployeeEvaluationRepository
+	cache            AssignmentCacheInvalidator
+	provisioner      AssignmentProvisioner
+	publisher        AssignmentEventPublisher
+	evidenceUploader EvidenceUploader
+	clock            Clock
 }
 
 // NewAssignmentApplicationService creates an assignment application service.
 func NewAssignmentApplicationService(repository AssignmentRepository, cache AssignmentCacheInvalidator, clock Clock) *AssignmentApplicationService {
-	return NewAssignmentApplicationServiceWithDependencies(repository, cache, nil, nil, nil, noOpAssignmentProvisioner{}, noOpAssignmentEventPublisher{}, clock)
+	return NewAssignmentApplicationServiceWithDependencies(repository, cache, nil, nil, nil, noOpAssignmentProvisioner{}, noOpAssignmentEventPublisher{}, nil, clock)
 }
 
 // NewAssignmentApplicationServiceWithDependencies creates an assignment service with explicit infrastructure ports.
@@ -65,6 +195,7 @@ func NewAssignmentApplicationServiceWithDependencies(
 	evaluationRepo EmployeeEvaluationRepository,
 	provisioner AssignmentProvisioner,
 	publisher AssignmentEventPublisher,
+	uploader EvidenceUploader,
 	clock Clock,
 ) *AssignmentApplicationService {
 	if clock == nil {
@@ -77,14 +208,15 @@ func NewAssignmentApplicationServiceWithDependencies(
 		publisher = noOpAssignmentEventPublisher{}
 	}
 	return &AssignmentApplicationService{
-		repository:     repository,
-		activityRepo:   activityRepo,
-		toolRepo:       toolRepo,
-		evaluationRepo: evaluationRepo,
-		cache:          cache,
-		provisioner:    provisioner,
-		publisher:      publisher,
-		clock:          clock,
+		repository:       repository,
+		activityRepo:     activityRepo,
+		toolRepo:         toolRepo,
+		evaluationRepo:   evaluationRepo,
+		cache:            cache,
+		provisioner:      provisioner,
+		publisher:        publisher,
+		evidenceUploader: uploader,
+		clock:            clock,
 	}
 }
 
@@ -223,8 +355,18 @@ func (s *AssignmentApplicationService) UploadActivityEvidence(ctx context.Contex
 		}
 	}
 	urls := make([]string, 0, len(input.Files))
-	for _, file := range input.Files {
-		urls = append(urls, file.SubmittedEvidenceURL(activityID))
+	if s.evidenceUploader != nil {
+		for _, file := range input.Files {
+			canonical, err := s.evidenceUploader.Upload(ctx, activityID, file.Slot, file.Reader, file.ContentType, file.Filename)
+			if err != nil {
+				return nil, fmt.Errorf("upload evidence slot %d: %w", file.Slot, err)
+			}
+			urls = append(urls, canonical)
+		}
+	} else {
+		for _, file := range input.Files {
+			urls = append(urls, file.SubmittedEvidenceURL(activityID))
+		}
 	}
 	now := s.clock()
 	update := ActivityEvidenceUpdate{
@@ -316,6 +458,18 @@ func (s *AssignmentApplicationService) SubmitEvaluation(ctx context.Context, inp
 	}
 	if err := s.evaluationRepo.Create(ctx, evaluation); err != nil {
 		return nil, fmt.Errorf("submit evaluation: %w", err)
+	}
+	if s.publisher != nil {
+		if err := s.publisher.PublishEmpleadoEvaluado(ctx, EmpleadoEvaluadoEvent{
+			EvaluationID:   evaluation.ID,
+			AssignmentID:   evaluation.AssignmentID,
+			EmployeeID:     evaluation.EmployeeID,
+			EvaluatorID:    evaluation.EvaluatorID,
+			Rating:         evaluation.Rating,
+			EvaluationDate: evaluation.EvaluationDate,
+		}); err != nil {
+			return nil, fmt.Errorf("publish empleado evaluado: %w", err)
+		}
 	}
 	return evaluation, nil
 }

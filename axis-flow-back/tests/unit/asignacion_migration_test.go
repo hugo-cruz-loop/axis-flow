@@ -91,7 +91,7 @@ func TestAsignacionMigrationDefinesLookupIndexes(t *testing.T) {
 	sql := compactSQL(readAsignacionMigration(t))
 
 	for _, required := range []string{
-				"create index if not exists idx_asignacion_empresa",
+		"create index if not exists idx_asignacion_empresa",
 		"create index if not exists idx_asignaactividad_asignacion",
 		"create index if not exists idx_asignaherramienta_asignacion",
 		"create index if not exists idx_evaluacionempleado_asignacion",

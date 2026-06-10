@@ -1,7 +1,9 @@
 package asignacion_test
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -108,7 +110,7 @@ func TestAssignmentApplicationServiceModifyUpdatesExistingAndInvalidatesCache(t 
 	clock := fixedClock(time.Date(2026, 6, 8, 18, 45, 0, 0, time.UTC))
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		repository, cache, &activityRepositorySpy{}, &toolRepositorySpy{}, &evaluationRepositorySpy{},
-		nil, publisher, clock,
+		nil, publisher, &evidenceUploaderSpy{}, clock,
 	)
 	end := mustDate(t, "2026-07-15")
 
@@ -139,7 +141,7 @@ func TestAssignmentApplicationServiceModifyDoesNotPublishWhenAssignmentDoesNotEx
 	publisher := &eventPublisherSpy{}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		repository, &assignmentCacheSpy{}, &activityRepositorySpy{}, &toolRepositorySpy{}, &evaluationRepositorySpy{},
-		nil, publisher, fixedClock(time.Now().UTC()),
+		nil, publisher, &evidenceUploaderSpy{}, fixedClock(time.Now().UTC()),
 	)
 
 	_, err := service.ModifyAssignment(context.Background(), assignmentID, asignacion.ModifyAssignmentInput{
@@ -271,9 +273,16 @@ type activityRepositorySpy struct {
 	batchUpdates []asignacion.ActivityStatusUpdate
 	batchResult  []asignacion.AssignedActivity
 	batchErr     error
+
+	createBatchErr    error
+	createdActivities []asignacion.AssignedActivity
 }
 
-func (r *activityRepositorySpy) CreateBatch(_ context.Context, _ []asignacion.AssignedActivity) error {
+func (r *activityRepositorySpy) CreateBatch(_ context.Context, activities []asignacion.AssignedActivity) error {
+	if r.createBatchErr != nil {
+		return r.createBatchErr
+	}
+	r.createdActivities = append(r.createdActivities, activities...)
 	return nil
 }
 func (r *activityRepositorySpy) ListByAssignment(_ context.Context, assignmentID uuid.UUID, status *asignacion.ActivityStatus) ([]asignacion.AssignedActivity, error) {
@@ -315,9 +324,16 @@ type toolRepositorySpy struct {
 	listedStatus       *asignacion.ToolDeliveryStatus
 	listed             []asignacion.AssignedTool
 	listErr            error
+
+	createBatchErr error
+	createdTools   []asignacion.AssignedTool
 }
 
-func (r *toolRepositorySpy) CreateBatch(_ context.Context, _ []asignacion.AssignedTool) error {
+func (r *toolRepositorySpy) CreateBatch(_ context.Context, tools []asignacion.AssignedTool) error {
+	if r.createBatchErr != nil {
+		return r.createBatchErr
+	}
+	r.createdTools = append(r.createdTools, tools...)
 	return nil
 }
 func (r *toolRepositorySpy) ListBySupervisor(_ context.Context, supervisorID uuid.UUID, status *asignacion.ToolDeliveryStatus) ([]asignacion.AssignedTool, error) {
@@ -354,6 +370,7 @@ func (r *evaluationRepositorySpy) ListByEmployee(_ context.Context, employeeID u
 type eventPublisherSpy struct {
 	asignacionModificadaEvents []asignacion.AsignacionModificadaEvent
 	evidenciaCargadaEvents     []asignacion.EvidenciaCargadaEvent
+	empleadoEvaluadoEvents     []asignacion.EmpleadoEvaluadoEvent
 	modErr                     error
 	evErr                      error
 }
@@ -366,6 +383,41 @@ func (p *eventPublisherSpy) PublishAsignacionModificada(_ context.Context, event
 func (p *eventPublisherSpy) PublishEvidenciaCargada(_ context.Context, event asignacion.EvidenciaCargadaEvent) error {
 	p.evidenciaCargadaEvents = append(p.evidenciaCargadaEvents, event)
 	return p.evErr
+}
+
+func (p *eventPublisherSpy) PublishEmpleadoEvaluado(_ context.Context, event asignacion.EmpleadoEvaluadoEvent) error {
+	p.empleadoEvaluadoEvents = append(p.empleadoEvaluadoEvents, event)
+	return nil
+}
+
+// evidenceUploaderSpy captures uploader calls and returns the URLs the test
+// wants persisted alongside the activity. By default it mirrors the
+// placeholder URL builder so the existing service tests that asserted
+// deterministic URL shapes keep passing.
+type evidenceUploaderSpy struct {
+	uploads    []evidenceUploadCall
+	uploadErr  error
+	URLBuilder func(activityID uuid.UUID, slot int, filename string) string
+}
+
+type evidenceUploadCall struct {
+	ActivityID  uuid.UUID
+	Slot        int
+	ContentType string
+	Filename    string
+	Payload     []byte
+}
+
+func (u *evidenceUploaderSpy) Upload(_ context.Context, activityID uuid.UUID, slot int, content io.Reader, contentType, filename string) (string, error) {
+	payload, _ := io.ReadAll(content)
+	u.uploads = append(u.uploads, evidenceUploadCall{ActivityID: activityID, Slot: slot, ContentType: contentType, Filename: filename, Payload: payload})
+	if u.uploadErr != nil {
+		return "", u.uploadErr
+	}
+	if u.URLBuilder != nil {
+		return u.URLBuilder(activityID, slot, filename), nil
+	}
+	return asignacion.BuildEvidenceStorageURL(activityID, slot, filename), nil
 }
 
 func evidenceActivityAssignmentID(_ uuid.UUID) uuid.UUID {
@@ -391,6 +443,7 @@ func TestAssignmentApplicationServiceUploadActivityEvidenceMarksCompletedAndPubl
 	}
 	cache := &assignmentCacheSpy{}
 	publisher := &eventPublisherSpy{}
+	uploader := &evidenceUploaderSpy{}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{},
 		cache,
@@ -399,6 +452,7 @@ func TestAssignmentApplicationServiceUploadActivityEvidenceMarksCompletedAndPubl
 		&evaluationRepositorySpy{},
 		nil,
 		publisher,
+		uploader,
 		fixedClock(clock),
 	)
 
@@ -408,14 +462,21 @@ func TestAssignmentApplicationServiceUploadActivityEvidenceMarksCompletedAndPubl
 		Longitude:  -99.1332,
 		Comment:    "Pasillo limpio",
 		Files: []asignacion.EvidenceFile{
-			{Slot: 1, Filename: "evidencia_1.jpg", ContentType: "image/jpeg", SizeBytes: 1024},
-			{Slot: 2, Filename: "evidencia_2.png", ContentType: "image/png", SizeBytes: 2048},
+			{Slot: 1, Filename: "evidencia_1.jpg", ContentType: "image/jpeg", SizeBytes: 1024, Reader: bytes.NewReader([]byte("jpgdata"))},
+			{Slot: 2, Filename: "evidencia_2.png", ContentType: "image/png", SizeBytes: 2048, Reader: bytes.NewReader([]byte("pngdata"))},
 		},
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, activity)
 	assert.Equal(t, asignacion.ActivityStatusCompleted, activity.Status)
+	require.Len(t, uploader.uploads, 2)
+	assert.Equal(t, activityID, uploader.uploads[0].ActivityID)
+	assert.Equal(t, 1, uploader.uploads[0].Slot)
+	assert.Equal(t, "image/jpeg", uploader.uploads[0].ContentType)
+	assert.Equal(t, []byte("jpgdata"), uploader.uploads[0].Payload)
+	assert.Equal(t, 2, uploader.uploads[1].Slot)
+	assert.Equal(t, []byte("pngdata"), uploader.uploads[1].Payload)
 	require.Len(t, activityRepo.evidenceUpdate.EvidenceURLs, 2)
 	assert.Equal(t, "https://s3.amazonaws.com/checkon-evidences/evidencia_1_d8a85f64-5717-4562-b3fc-2c963f66afc0.jpg", activityRepo.evidenceUpdate.EvidenceURLs[0])
 	assert.Equal(t, "https://s3.amazonaws.com/checkon-evidences/evidencia_2_d8a85f64-5717-4562-b3fc-2c963f66afc0.png", activityRepo.evidenceUpdate.EvidenceURLs[1])
@@ -442,8 +503,8 @@ func TestAssignmentApplicationServiceUploadActivityEvidenceRejectsEmptyInput(t *
 	cache := &assignmentCacheSpy{}
 	publisher := &eventPublisherSpy{}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
-		&assignmentRepositorySpy{}, cache, activityRepo,
-		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, publisher,
+		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, activityRepo,
+		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{}, &evidenceUploaderSpy{},
 		fixedClock(time.Date(2026, 6, 8, 18, 42, 0, 0, time.UTC)),
 	)
 
@@ -470,7 +531,7 @@ func TestAssignmentApplicationServiceListActivitiesByAssignmentForwardsStatusFil
 	activityRepo := &activityRepositorySpy{listed: listed}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, activityRepo,
-		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{},
+		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{}, &evidenceUploaderSpy{},
 		fixedClock(time.Now().UTC()),
 	)
 
@@ -488,7 +549,7 @@ func TestAssignmentApplicationServiceListActivitiesByAssignmentReturnsEmptyListF
 	activityRepo := &activityRepositorySpy{listed: nil}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, activityRepo,
-		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{},
+		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{}, &evidenceUploaderSpy{},
 		fixedClock(time.Now().UTC()),
 	)
 
@@ -508,7 +569,7 @@ func TestAssignmentApplicationServiceBatchUpdateActivityStatusStampsUpdatedAtAnd
 	publisher := &eventPublisherSpy{}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, activityRepo,
-		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, publisher,
+		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, publisher, &evidenceUploaderSpy{},
 		fixedClock(clock),
 	)
 
@@ -536,7 +597,7 @@ func TestAssignmentApplicationServiceBatchUpdateActivityStatusRejectsEmptyBatch(
 	publisher := &eventPublisherSpy{}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, activityRepo,
-		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, publisher,
+		&toolRepositorySpy{}, &evaluationRepositorySpy{}, nil, publisher, &evidenceUploaderSpy{},
 		fixedClock(time.Now().UTC()),
 	)
 
@@ -557,7 +618,7 @@ func TestAssignmentApplicationServiceListToolsBySupervisorForwardsStatusFilter(t
 	toolRepo := &toolRepositorySpy{listed: listed}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, &activityRepositorySpy{},
-		toolRepo, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{},
+		toolRepo, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{}, &evidenceUploaderSpy{},
 		fixedClock(time.Now().UTC()),
 	)
 
@@ -576,7 +637,7 @@ func TestAssignmentApplicationServiceListToolsBySupervisorReturnsAllWithoutFilte
 	toolRepo := &toolRepositorySpy{listed: []asignacion.AssignedTool{{ID: uuid.New(), Name: "A"}, {ID: uuid.New(), Name: "B"}}}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, &activityRepositorySpy{},
-		toolRepo, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{},
+		toolRepo, &evaluationRepositorySpy{}, nil, &eventPublisherSpy{}, &evidenceUploaderSpy{},
 		fixedClock(time.Now().UTC()),
 	)
 
@@ -590,16 +651,20 @@ func TestAssignmentApplicationServiceListToolsBySupervisorReturnsAllWithoutFilte
 
 func TestAssignmentApplicationServiceSubmitEvaluationPersistsRatingWithinRange(t *testing.T) {
 	clock := time.Date(2026, 6, 8, 18, 46, 0, 0, time.UTC)
+	publisher := &eventPublisherSpy{}
 	evaluationRepo := &evaluationRepositorySpy{}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, &activityRepositorySpy{},
-		&toolRepositorySpy{}, evaluationRepo, nil, &eventPublisherSpy{}, fixedClock(clock),
+		&toolRepositorySpy{}, evaluationRepo, nil, publisher, &evidenceUploaderSpy{}, fixedClock(clock),
 	)
 
+	assignmentID := uuid.New()
+	employeeID := uuid.New()
+	evaluatorID := uuid.New()
 	evaluation, err := service.SubmitEvaluation(context.Background(), asignacion.SubmitEvaluationInput{
-		AssignmentID: uuid.New(),
-		EmployeeID:   uuid.New(),
-		EvaluatorID:  uuid.New(),
+		AssignmentID: assignmentID,
+		EmployeeID:   employeeID,
+		EvaluatorID:  evaluatorID,
 		Rating:       4.5,
 		Comments:     "Excelente actitud",
 	})
@@ -611,13 +676,23 @@ func TestAssignmentApplicationServiceSubmitEvaluationPersistsRatingWithinRange(t
 	assert.True(t, evaluation.CreatedAt.Equal(clock))
 	assert.Equal(t, "Excelente actitud", evaluation.Comments)
 	require.NotNil(t, evaluationRepo.created)
+
+	require.Len(t, publisher.empleadoEvaluadoEvents, 1, "EmpleadoEvaluado must be published after successful evaluation")
+	got := publisher.empleadoEvaluadoEvents[0]
+	assert.Equal(t, evaluation.ID, got.EvaluationID)
+	assert.Equal(t, assignmentID, got.AssignmentID)
+	assert.Equal(t, employeeID, got.EmployeeID)
+	assert.Equal(t, evaluatorID, got.EvaluatorID)
+	assert.Equal(t, 4, got.Rating)
+	assert.True(t, got.EvaluationDate.Equal(clock))
 }
 
 func TestAssignmentApplicationServiceSubmitEvaluationRejectsRatingOutOfRange(t *testing.T) {
+	publisher := &eventPublisherSpy{}
 	evaluationRepo := &evaluationRepositorySpy{}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, &activityRepositorySpy{},
-		&toolRepositorySpy{}, evaluationRepo, nil, &eventPublisherSpy{}, fixedClock(time.Now().UTC()),
+		&toolRepositorySpy{}, evaluationRepo, nil, publisher, &evidenceUploaderSpy{}, fixedClock(time.Now().UTC()),
 	)
 
 	_, err := service.SubmitEvaluation(context.Background(), asignacion.SubmitEvaluationInput{
@@ -629,6 +704,7 @@ func TestAssignmentApplicationServiceSubmitEvaluationRejectsRatingOutOfRange(t *
 
 	require.ErrorIs(t, err, asignacion.ErrInvalidEvaluationRating)
 	assert.Nil(t, evaluationRepo.created, "no evaluation must be written on validation failure")
+	assert.Empty(t, publisher.empleadoEvaluadoEvents, "publisher must not be called on validation failure")
 }
 
 func TestAssignmentApplicationServiceGetEvaluationHistoryComputesAverageAndPagination(t *testing.T) {
@@ -640,7 +716,7 @@ func TestAssignmentApplicationServiceGetEvaluationHistoryComputesAverageAndPagin
 	}}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, &activityRepositorySpy{},
-		&toolRepositorySpy{}, evaluationRepo, nil, &eventPublisherSpy{}, fixedClock(time.Now().UTC()),
+		&toolRepositorySpy{}, evaluationRepo, nil, &eventPublisherSpy{}, &evidenceUploaderSpy{}, fixedClock(time.Now().UTC()),
 	)
 
 	result, err := service.GetEvaluationHistory(context.Background(), employeeID, asignacion.Pagination{Limit: 10, Offset: 0})
@@ -659,7 +735,7 @@ func TestAssignmentApplicationServiceGetEvaluationHistoryHandlesEmptyResult(t *t
 	evaluationRepo := &evaluationRepositorySpy{listed: nil}
 	service := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		&assignmentRepositorySpy{}, &assignmentCacheSpy{}, &activityRepositorySpy{},
-		&toolRepositorySpy{}, evaluationRepo, nil, &eventPublisherSpy{}, fixedClock(time.Now().UTC()),
+		&toolRepositorySpy{}, evaluationRepo, nil, &eventPublisherSpy{}, &evidenceUploaderSpy{}, fixedClock(time.Now().UTC()),
 	)
 
 	result, err := service.GetEvaluationHistory(context.Background(), employeeID, asignacion.Pagination{Limit: 10, Offset: 0})

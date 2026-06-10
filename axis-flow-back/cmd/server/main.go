@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"axis-flow-back/internal/asignacion"
+	asignacionEvents "axis-flow-back/internal/asignacion/events"
+	asignacionStorage "axis-flow-back/internal/asignacion/storage"
 	"axis-flow-back/internal/catalogos/repository"
 	"axis-flow-back/internal/config"
 	"axis-flow-back/internal/handler"
@@ -29,6 +31,8 @@ import (
 	empresasrepo "axis-flow-back/internal/empresas/repository"
 	empresassvc "axis-flow-back/internal/empresas/service"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -148,9 +152,42 @@ func main() {
 	activityRepo := asignacion.NewPgxAssignedActivityRepository(dbPool)
 	toolRepo := asignacion.NewPgxAssignedToolRepository(dbPool)
 	evaluationRepo := asignacion.NewPgxEmployeeEvaluationRepository(dbPool)
+
+	// PR-5: real Redis Streams publisher for Asignacion events. The publisher
+	// is always wired because Redis is a hard dependency at boot; the S3
+	// uploader is only wired when evidence bucket + creds are configured
+	// (dev/staging can run without AWS).
+	assignmentPublisher := asignacionEvents.NewRedisStreamsAssignmentEventPublisher(redisClient, asignacionEvents.RedisStreamsConfig{
+		StreamKey:        cfg.Asignacion.EventsStreamKey,
+		MaxLen:           cfg.Asignacion.EventsStreamMaxLen,
+		OperationTimeout: cfg.Asignacion.EventsPublishTimeout,
+	})
+	var evidenceUploader asignacion.EvidenceUploader
+	if cfg.Asignacion.AWSEvidenceBucketName != "" && cfg.Storage.AWSAccessKeyID != "" && cfg.Storage.AWSSecretAccessKey != "" {
+		awsCfg, awsCfgErr := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(cfg.Storage.AWSRegion))
+		if awsCfgErr == nil {
+			s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+				o.Region = cfg.Storage.AWSRegion
+			})
+			evidenceUploader = asignacionStorage.NewS3EvidenceUploader(s3Client, asignacionStorage.S3EvidenceUploaderConfig{
+				Bucket:        cfg.Asignacion.AWSEvidenceBucketName,
+				KeyPrefix:     cfg.Asignacion.AWSEvidenceKeyPrefix,
+				PublicBaseURL: cfg.Asignacion.AWSEvidencePublicBaseURL,
+				UploadTimeout: cfg.Asignacion.AWSEvidenceUploadTimeout,
+			})
+		} else {
+			slog.Warn("asignacion: AWS SDK config load failed, evidence uploader disabled", slog.String("error", awsCfgErr.Error()))
+		}
+	}
+
+	// PR-5 + verify-fix: real default provisioner derives deterministic
+	// activities and tools from the assignment's ServiceID. The future
+	// service-template-driven provisioner will replace this.
+	assignmentProvisioner := asignacion.NewDefaultAssignmentProvisioner(activityRepo, toolRepo, func() time.Time { return time.Now().UTC() })
+
 	assignmentSvc := asignacion.NewAssignmentApplicationServiceWithDependencies(
 		assignmentRepo, assignmentCache, activityRepo, toolRepo, evaluationRepo,
-		nil, asignacion.NewNoOpAssignmentEventPublisher(), func() time.Time { return time.Now().UTC() },
+		assignmentProvisioner, assignmentPublisher, evidenceUploader, func() time.Time { return time.Now().UTC() },
 	)
 	assignmentHandler := asignacion.NewHTTPHandler(assignmentSvc)
 

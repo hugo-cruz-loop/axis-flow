@@ -4,6 +4,7 @@ package asignacion
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -453,6 +454,21 @@ type EvidenciaCargadaEvent struct {
 // Name returns the canonical event name.
 func (e EvidenciaCargadaEvent) Name() string { return "EvidenciaCargada" }
 
+// EmpleadoEvaluadoEvent is published after a successful evaluation submission.
+// Notification and audit services consume it to drive supervisor dashboards
+// and per-employee scorecard history.
+type EmpleadoEvaluadoEvent struct {
+	EvaluationID   uuid.UUID
+	AssignmentID   uuid.UUID
+	EmployeeID     uuid.UUID
+	EvaluatorID    uuid.UUID
+	Rating         int
+	EvaluationDate time.Time
+}
+
+// Name returns the canonical event name.
+func (e EmpleadoEvaluadoEvent) Name() string { return "EmpleadoEvaluado" }
+
 // UploadActivityEvidenceInput is the application-service input for evidence upload.
 type UploadActivityEvidenceInput struct {
 	EmployeeID uuid.UUID
@@ -468,6 +484,9 @@ type EvidenceFile struct {
 	Filename    string
 	ContentType string
 	SizeBytes   int64
+	// Reader is the open multipart file content; consumed by the EvidenceUploader.
+	// nil is valid for unit tests that exercise the service layer with a stub uploader.
+	Reader io.Reader
 }
 
 // SubmittedEvidenceURL resolves the public storage URL for an uploaded evidence file.

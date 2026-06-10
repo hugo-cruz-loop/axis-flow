@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -476,11 +477,16 @@ func (h *HTTPHandler) UploadActivityEvidence(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	files, err := parseEvidenceFiles(r)
+	files, openFiles, err := parseEvidenceFiles(r)
 	if err != nil {
 		writeAssignmentError(w, "VALIDATION_ERROR", err.Error(), http.StatusBadRequest)
 		return
 	}
+	defer func() {
+		for _, closer := range openFiles {
+			_ = closer.Close()
+		}
+	}()
 	lat, err := parseRequiredFloat(r, "latitud")
 	if err != nil {
 		lat, err = parseRequiredFloat(r, "lat")
@@ -619,8 +625,9 @@ func (h *HTTPHandler) GetEvaluationHistory(w http.ResponseWriter, r *http.Reques
 	writeAssignmentJSON(w, http.StatusOK, evaluationHistoryEnvelope{Data: newEvaluationHistoryBody(result), Pagination: result.Pagination})
 }
 
-func parseEvidenceFiles(r *http.Request) ([]EvidenceFile, error) {
+func parseEvidenceFiles(r *http.Request) ([]EvidenceFile, []multipart.File, error) {
 	var files []EvidenceFile
+	var openFiles []multipart.File
 	for _, slot := range []int{1, 2, 3} {
 		key := fmt.Sprintf("evidencia_%d", slot)
 		headers := r.MultipartForm.File[key]
@@ -628,15 +635,24 @@ func parseEvidenceFiles(r *http.Request) ([]EvidenceFile, error) {
 			continue
 		}
 		for _, header := range headers {
+			opened, openErr := header.Open()
+			if openErr != nil {
+				for _, c := range openFiles {
+					_ = c.Close()
+				}
+				return nil, nil, fmt.Errorf("failed to open evidencia_%d: %w", slot, openErr)
+			}
 			files = append(files, EvidenceFile{
 				Slot:        slot,
 				Filename:    header.Filename,
 				ContentType: header.Header.Get("Content-Type"),
 				SizeBytes:   header.Size,
+				Reader:      opened,
 			})
+			openFiles = append(openFiles, opened)
 		}
 	}
-	return files, nil
+	return files, openFiles, nil
 }
 
 func parseRequiredFloat(r *http.Request, name string) (float64, error) {
