@@ -44,7 +44,7 @@ func (m *mockTicketRepo) GetTicket(_ context.Context, id uuid.UUID) (*atencionse
 	return &atencionseguimiento.TicketServicio{ID: id}, nil
 }
 
-func (m *mockTicketRepo) GetTicketsByCliente(_ context.Context, _ uuid.UUID, _, _ int) ([]*atencionseguimiento.TicketServicio, int, error) {
+func (m *mockTicketRepo) GetTicketsByCliente(_ context.Context, _, _ uuid.UUID, _, _ int) ([]*atencionseguimiento.TicketServicio, int, error) {
 	return nil, 0, nil
 }
 
@@ -173,7 +173,7 @@ func TestTicketService_GetTicketsByCliente_ClienteForbiddenOnMismatch(t *testing
 	ownerID := uuid.New()
 	requesterID := uuid.New() // different from ownerID
 
-	_, _, err := svc.GetTicketsByCliente(context.Background(), ownerID, requesterID, "Cliente", 1, 10)
+	_, _, err := svc.GetTicketsByCliente(context.Background(), ownerID, uuid.New(), requesterID, "Cliente", 1, 10)
 	if err == nil {
 		t.Fatal("expected ErrForbidden, got nil")
 	}

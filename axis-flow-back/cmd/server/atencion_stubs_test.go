@@ -38,7 +38,7 @@ type stubTicketSvc struct{}
 func (s *stubTicketSvc) CreateTicket(_ context.Context, t *atencionseguimiento.TicketServicio, _, _ uuid.UUID) (*atencionseguimiento.TicketServicio, *atencionseguimiento.RespuestaServicio, error) {
 	return t, &atencionseguimiento.RespuestaServicio{}, nil
 }
-func (s *stubTicketSvc) GetTicketsByCliente(_ context.Context, _, _ uuid.UUID, _ string, _, _ int) ([]*atencionseguimiento.TicketServicio, int, error) {
+func (s *stubTicketSvc) GetTicketsByCliente(_ context.Context, _, _, _ uuid.UUID, _ string, _, _ int) ([]*atencionseguimiento.TicketServicio, int, error) {
 	return nil, 0, nil
 }
 func (s *stubTicketSvc) UpdateTicketEstatus(_ context.Context, _, _ uuid.UUID, _ int, _ uuid.UUID) (*atencionseguimiento.TicketServicio, error) {

@@ -182,11 +182,17 @@ func (h *TicketHandler) GetTicketsByCliente(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	empresaID, err := extractTenantID(r)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
+		return
+	}
+
 	userID, _ := extractUserID(r)
 	role := extractRole(r)
 	page, limit := parsePagination(r)
 
-	tickets, total, err := h.svc.GetTicketsByCliente(r.Context(), clienteID, userID, role, page, limit)
+	tickets, total, err := h.svc.GetTicketsByCliente(r.Context(), clienteID, empresaID, userID, role, page, limit)
 	if err != nil {
 		mapAtencionError(w, err)
 		return

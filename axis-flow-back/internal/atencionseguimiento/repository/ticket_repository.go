@@ -25,7 +25,7 @@ import (
 type TicketRepository interface {
 	CreateTicket(ctx context.Context, t *atencionseguimiento.TicketServicio) error
 	GetTicket(ctx context.Context, id uuid.UUID) (*atencionseguimiento.TicketServicio, error)
-	GetTicketsByCliente(ctx context.Context, clienteID uuid.UUID, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error)
+	GetTicketsByCliente(ctx context.Context, clienteID, empresaID uuid.UUID, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error)
 	UpdateTicketEstatus(ctx context.Context, id, empresaID uuid.UUID, newEstatus int) (*atencionseguimiento.TicketServicio, error)
 	GetTicketStats(ctx context.Context, empresaID uuid.UUID) (*atencionseguimiento.TicketStats, error)
 	CreateRespuestaServicio(ctx context.Context, r *atencionseguimiento.RespuestaServicio) error
@@ -88,21 +88,21 @@ func (r *PgxTicketRepository) GetTicket(ctx context.Context, id uuid.UUID) (*ate
 	return t, nil
 }
 
-// GetTicketsByCliente returns paginated tickets for a cliente.
-func (r *PgxTicketRepository) GetTicketsByCliente(ctx context.Context, clienteID uuid.UUID, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error) {
+// GetTicketsByCliente returns paginated tickets for a cliente scoped to an empresa.
+func (r *PgxTicketRepository) GetTicketsByCliente(ctx context.Context, clienteID, empresaID uuid.UUID, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error) {
 	offset := (page - 1) * pageSize
-	const countQ = `SELECT COUNT(*) FROM atencion_seguimiento.tickets_servicio WHERE cliente_id = $1`
+	const countQ = `SELECT COUNT(*) FROM atencion_seguimiento.tickets_servicio WHERE cliente_id = $1 AND empresa_id = $2`
 	var total int
-	if err := r.db.QueryRow(ctx, countQ, clienteID).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, countQ, clienteID, empresaID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("ticket_repository.GetTicketsByCliente count: %w", err)
 	}
 	const q = `
 		SELECT id, empresa_id, cliente_id, localidad_id, asunto, descripcion, estatus, ultima_resp, created_at, updated_at
 		FROM atencion_seguimiento.tickets_servicio
-		WHERE cliente_id = $1
+		WHERE cliente_id = $1 AND empresa_id = $2
 		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3`
-	rows, err := r.db.Query(ctx, q, clienteID, pageSize, offset)
+		LIMIT $3 OFFSET $4`
+	rows, err := r.db.Query(ctx, q, clienteID, empresaID, pageSize, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("ticket_repository.GetTicketsByCliente query: %w", err)
 	}
@@ -307,12 +307,12 @@ func (r *InMemTicketRepository) GetTicket(_ context.Context, id uuid.UUID) (*ate
 	return &cp, nil
 }
 
-func (r *InMemTicketRepository) GetTicketsByCliente(_ context.Context, clienteID uuid.UUID, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error) {
+func (r *InMemTicketRepository) GetTicketsByCliente(_ context.Context, clienteID, empresaID uuid.UUID, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var filtered []*atencionseguimiento.TicketServicio
 	for _, t := range r.tickets {
-		if t.ClienteID == clienteID {
+		if t.ClienteID == clienteID && t.EmpresaID == empresaID {
 			cp := *t
 			filtered = append(filtered, &cp)
 		}

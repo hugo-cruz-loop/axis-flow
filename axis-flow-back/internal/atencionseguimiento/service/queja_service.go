@@ -65,6 +65,7 @@ func (s *quejaService) CreateQueja(ctx context.Context, q *atencionseguimiento.S
 		RemitenteID:  uuid.New(), // placeholder — caller should set RemitenteID before calling
 		RolRespuesta: atencionseguimiento.RolEmpleadoCliente,
 		Mensaje:      q.Descripcion,
+		Leido:        false,
 		CreatedAt:    now,
 	}
 	if err := s.repo.CreateRespuesta(ctx, msg); err != nil {
@@ -121,6 +122,7 @@ func (s *quejaService) CreateMensaje(ctx context.Context, solicitudID uuid.UUID,
 
 	msg.ID = uuid.New()
 	msg.SolicitudID = solicitudID
+	msg.Leido = false
 	msg.CreatedAt = time.Now()
 
 	if err := s.repo.CreateRespuesta(ctx, msg); err != nil {

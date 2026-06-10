@@ -16,8 +16,8 @@ type TicketService interface {
 	// CreateTicket creates a new ticket and its initial message. Returns both.
 	CreateTicket(ctx context.Context, t *atencionseguimiento.TicketServicio, clienteID, empresaID uuid.UUID) (*atencionseguimiento.TicketServicio, *atencionseguimiento.RespuestaServicio, error)
 
-	// GetTicketsByCliente lists tickets for a client. Enforces IDOR for Cliente role.
-	GetTicketsByCliente(ctx context.Context, clienteID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error)
+	// GetTicketsByCliente lists tickets for a client scoped to an empresa. Enforces IDOR for Cliente role.
+	GetTicketsByCliente(ctx context.Context, clienteID, empresaID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error)
 
 	// UpdateTicketEstatus transitions a ticket to a new estatus. Publishes event with
 	// both the previous and new status.
@@ -67,6 +67,7 @@ func (s *ticketService) CreateTicket(ctx context.Context, t *atencionseguimiento
 		RemitenteID:  clienteID,
 		RolRespuesta: atencionseguimiento.RolEmpleadoCliente,
 		Mensaje:      t.Descripcion,
+		Leido:        false,
 		CreatedAt:    now,
 	}
 	if err := s.repo.CreateRespuestaServicio(ctx, msg); err != nil {
@@ -82,11 +83,11 @@ func (s *ticketService) CreateTicket(ctx context.Context, t *atencionseguimiento
 	return t, msg, nil
 }
 
-func (s *ticketService) GetTicketsByCliente(ctx context.Context, clienteID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error) {
+func (s *ticketService) GetTicketsByCliente(ctx context.Context, clienteID, empresaID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error) {
 	if requesterRole == "Cliente" && clienteID != requesterClienteID {
 		return nil, 0, atencionseguimiento.ErrForbidden
 	}
-	return s.repo.GetTicketsByCliente(ctx, clienteID, page, pageSize)
+	return s.repo.GetTicketsByCliente(ctx, clienteID, empresaID, page, pageSize)
 }
 
 func (s *ticketService) UpdateTicketEstatus(ctx context.Context, id, empresaID uuid.UUID, newEstatus int, updatedByID uuid.UUID) (*atencionseguimiento.TicketServicio, error) {
@@ -148,6 +149,7 @@ func (s *ticketService) CreateMensajeServicio(ctx context.Context, ticketID uuid
 
 	msg.ID = uuid.New()
 	msg.TicketID = ticketID
+	msg.Leido = false
 	msg.CreatedAt = time.Now()
 
 	if err := s.repo.CreateRespuestaServicio(ctx, msg); err != nil {

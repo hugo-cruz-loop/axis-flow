@@ -22,7 +22,7 @@ import (
 
 type mockTicketService struct {
 	createTicketFn         func(ctx context.Context, t *atencionseguimiento.TicketServicio, clienteID, empresaID uuid.UUID) (*atencionseguimiento.TicketServicio, *atencionseguimiento.RespuestaServicio, error)
-	getTicketsByClienteFn  func(ctx context.Context, clienteID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error)
+	getTicketsByClienteFn  func(ctx context.Context, clienteID, empresaID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error)
 	updateTicketEstatusFn  func(ctx context.Context, id, empresaID uuid.UUID, newEstatus int, updatedByID uuid.UUID) (*atencionseguimiento.TicketServicio, error)
 	getMensajesServicioFn  func(ctx context.Context, ticketID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.RespuestaServicio, int, error)
 	createMensajeServicioFn func(ctx context.Context, ticketID uuid.UUID, msg *atencionseguimiento.RespuestaServicio, requesterClienteID uuid.UUID, requesterRole string) (*atencionseguimiento.RespuestaServicio, error)
@@ -33,8 +33,8 @@ type mockTicketService struct {
 func (m *mockTicketService) CreateTicket(ctx context.Context, t *atencionseguimiento.TicketServicio, clienteID, empresaID uuid.UUID) (*atencionseguimiento.TicketServicio, *atencionseguimiento.RespuestaServicio, error) {
 	return m.createTicketFn(ctx, t, clienteID, empresaID)
 }
-func (m *mockTicketService) GetTicketsByCliente(ctx context.Context, clienteID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error) {
-	return m.getTicketsByClienteFn(ctx, clienteID, requesterClienteID, requesterRole, page, pageSize)
+func (m *mockTicketService) GetTicketsByCliente(ctx context.Context, clienteID, empresaID uuid.UUID, requesterClienteID uuid.UUID, requesterRole string, page, pageSize int) ([]*atencionseguimiento.TicketServicio, int, error) {
+	return m.getTicketsByClienteFn(ctx, clienteID, empresaID, requesterClienteID, requesterRole, page, pageSize)
 }
 func (m *mockTicketService) UpdateTicketEstatus(ctx context.Context, id, empresaID uuid.UUID, newEstatus int, updatedByID uuid.UUID) (*atencionseguimiento.TicketServicio, error) {
 	return m.updateTicketEstatusFn(ctx, id, empresaID, newEstatus, updatedByID)
