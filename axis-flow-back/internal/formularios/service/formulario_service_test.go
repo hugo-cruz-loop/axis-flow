@@ -34,6 +34,7 @@ type stubFormularioCache struct {
 	eventoCalls     []struct{ Empresa, Cliente uuid.UUID }
 	respuestaCalls  []uuid.UUID
 	formularioErr   error
+	respuestaErr    error
 }
 
 func (s *stubFormularioCache) UnlinkFormulariosByEmpresa(_ context.Context, empresaID uuid.UUID) error {
@@ -46,7 +47,7 @@ func (s *stubFormularioCache) UnlinkEventosByEmpCte(_ context.Context, empresaID
 }
 func (s *stubFormularioCache) UnlinkRespuestasByIniciado(_ context.Context, iniciadoID uuid.UUID) error {
 	s.respuestaCalls = append(s.respuestaCalls, iniciadoID)
-	return nil
+	return s.respuestaErr
 }
 
 // ---------------------------------------------------------------------------

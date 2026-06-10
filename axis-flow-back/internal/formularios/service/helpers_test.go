@@ -18,12 +18,14 @@ type recordedEvent struct {
 }
 
 // recordingPublisher is an events.EventPublisher spy that records every
-// event in insertion order.
+// event in insertion order. If err is non-nil, Publish returns it so the
+// postWriteHook swallow path can be exercised in tests.
 type recordingPublisher struct {
 	events []recordedEvent
+	err    error
 }
 
 func (p *recordingPublisher) Publish(_ context.Context, stream string, payload map[string]any) error {
 	p.events = append(p.events, recordedEvent{stream: stream, payload: payload})
-	return nil
+	return p.err
 }
