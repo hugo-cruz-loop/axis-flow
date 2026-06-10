@@ -566,6 +566,14 @@ func main() {
 	cursosModule := newCursosModule(dbPool, redisClient, cfg)
 	registerCursosRoutes(r, cursosModule, middleware.JWTAuth(authSvc), middleware.RequireRoles)
 
+	// ── AtencionSeguimiento module ────────────────────────────────────────────
+	atencionModule := newAtencionModule(dbPool, redisClient, cfg)
+	registerAtencionRoutes(r, atencionModule, middleware.JWTAuth(authSvc), middleware.RequireRoles)
+	// Start cross-domain event consumers as background goroutines.
+	// Both exit cleanly when the app context is cancelled on shutdown.
+	atencionModule.EmpleadoDeBajaConsumer.Start(ctx)
+	atencionModule.ClienteInactivoConsumer.Start(ctx)
+
 	// ── BolsaTrabajo module ───────────────────────────────────────────────────
 	bolsaModule := newBolsaTrabajoModule(dbPool, redisClient, cfg)
 	registerBolsaTrabajoRoutes(r, bolsaModule, middleware.JWTAuth(authSvc), middleware.RequireRoles)
