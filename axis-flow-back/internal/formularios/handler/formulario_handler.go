@@ -98,27 +98,27 @@ type createFormularioRequest struct {
 func (h *FormularioHandler) CreateFormulario(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthorized", "missing tenant")
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
 		return
 	}
 
 	var req createFormularioRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid request body")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid request body")
 		return
 	}
 	if strings.TrimSpace(req.Nombre) == "" {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "nombre is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "nombre is required")
 		return
 	}
 	if len(req.Nombre) > maxFormularioNombreHTTP {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "nombre exceeds max length")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "nombre exceeds max length")
 		return
 	}
 	// IDOR: the body's empresa_id MUST equal the JWT tenant. A
 	// foreign-tenant body is a tenant-spoofing attempt.
 	if req.EmpresaID != tenantID {
-		respondError(w, http.StatusForbidden, "forbidden", "tenant mismatch")
+		respondError(w, http.StatusForbidden, "FORBIDDEN", "tenant mismatch")
 		return
 	}
 
@@ -156,16 +156,16 @@ const maxFormularioNombreHTTP = 150
 func (h *FormularioHandler) GetFormulariosByEmpresa(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthorized", "missing tenant")
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
 		return
 	}
 	empresaID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid empresa id")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid empresa id")
 		return
 	}
 	if empresaID != tenantID {
-		respondError(w, http.StatusForbidden, "forbidden", "tenant mismatch")
+		respondError(w, http.StatusForbidden, "FORBIDDEN", "tenant mismatch")
 		return
 	}
 
@@ -175,7 +175,7 @@ func (h *FormularioHandler) GetFormulariosByEmpresa(w http.ResponseWriter, r *ht
 	if a := r.URL.Query().Get("activo"); a != "" {
 		v, err := strconv.ParseBool(a)
 		if err != nil {
-			respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid activo flag")
+			respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid activo flag")
 			return
 		}
 		activo = &v
@@ -234,25 +234,25 @@ func validTipoPreguntaHTTP(t int) bool {
 func (h *FormularioHandler) CreatePregunta(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthorized", "missing tenant")
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
 		return
 	}
 
 	var req createPreguntaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid request body")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid request body")
 		return
 	}
 	if req.Orden < 1 {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "orden must be ≥ 1")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "orden must be ≥ 1")
 		return
 	}
 	if strings.TrimSpace(req.TextoPregunta) == "" {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "texto_pregunta is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "texto_pregunta is required")
 		return
 	}
 	if !validTipoPreguntaHTTP(req.TipoPregunta) {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid tipo_pregunta")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid tipo_pregunta")
 		return
 	}
 

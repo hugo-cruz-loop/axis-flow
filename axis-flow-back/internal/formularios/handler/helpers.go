@@ -124,13 +124,15 @@ func extractRole(r *http.Request) string {
 // formularios.ErrInvalidInput to 422 (per the openapi contract) instead
 // of 400.
 //
-// Status / code table:
+// Status / code table (PR-4 AMEND — FIX 4, SCREAMING_SNAKE_CASE codes
+// matching 09's atencionseguimiento constants verbatim):
 //
-//	ErrNotFound     → 404 / "not_found"
-//	ErrForbidden    → 403 / "forbidden"
-//	ErrInvalidInput → 422 / "invalid_payload"
-//	ErrConflict     → 409 / "conflict"
-//	default         → 500 / "internal_error" with a generic message
+//	ErrNotFound     → 404 / "NOT_FOUND"
+//	ErrForbidden    → 403 / "FORBIDDEN"
+//	ErrInvalidInput → 422 / "VALIDATION_ERROR"   (09 uses 400; formularios
+//	                                            openapi requires 422)
+//	ErrConflict     → 409 / "CONFLICT"
+//	default         → 500 / "INTERNAL_ERROR"     (generic message)
 //
 // On the default branch, the original error is intentionally NOT echoed
 // into the response body — the original error may contain file paths,
@@ -157,15 +159,15 @@ func mapFormulariosError(w http.ResponseWriter, err error) {
 func formulariosErrorCode(err error) (int, string) {
 	switch {
 	case errors.Is(err, formularios.ErrNotFound):
-		return http.StatusNotFound, "not_found"
+		return http.StatusNotFound, "NOT_FOUND"
 	case errors.Is(err, formularios.ErrForbidden):
-		return http.StatusForbidden, "forbidden"
+		return http.StatusForbidden, "FORBIDDEN"
 	case errors.Is(err, formularios.ErrInvalidInput):
-		return http.StatusUnprocessableEntity, "invalid_payload"
+		return http.StatusUnprocessableEntity, "VALIDATION_ERROR"
 	case errors.Is(err, formularios.ErrConflict):
-		return http.StatusConflict, "conflict"
+		return http.StatusConflict, "CONFLICT"
 	default:
-		return http.StatusInternalServerError, "internal_error"
+		return http.StatusInternalServerError, "INTERNAL_ERROR"
 	}
 }
 

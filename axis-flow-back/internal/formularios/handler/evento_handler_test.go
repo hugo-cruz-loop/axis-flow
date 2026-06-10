@@ -269,7 +269,7 @@ func TestIniciarEvento_ServiceErrNotFound_Returns404(t *testing.T) {
 	h.IniciarEvento(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), `"not_found"`)
+	assert.Contains(t, w.Body.String(), `"NOT_FOUND"`)
 }
 
 func TestIniciarEvento_ValidRequest_Returns201WithData(t *testing.T) {

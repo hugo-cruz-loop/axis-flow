@@ -94,7 +94,7 @@ func TestCreateFormulario_InvalidJSON_Returns422(t *testing.T) {
 	h.CreateFormulario(w, r)
 
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code, "bad JSON → 422")
-	assert.Contains(t, w.Body.String(), `"invalid_payload"`)
+	assert.Contains(t, w.Body.String(), `"VALIDATION_ERROR"`)
 }
 
 func TestCreateFormulario_EmptyNombre_Returns422(t *testing.T) {
@@ -191,7 +191,7 @@ func TestCreateFormulario_ServiceErrInvalidInput_Returns422(t *testing.T) {
 	h.CreateFormulario(w, r)
 
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
-	assert.Contains(t, w.Body.String(), `"invalid_payload"`)
+	assert.Contains(t, w.Body.String(), `"VALIDATION_ERROR"`)
 }
 
 func TestCreateFormulario_ValidRequest_Returns201WithData(t *testing.T) {
@@ -456,7 +456,7 @@ func TestCreatePregunta_ServiceErrNotFound_Returns404(t *testing.T) {
 	h.CreatePregunta(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	assert.Contains(t, w.Body.String(), `"not_found"`)
+	assert.Contains(t, w.Body.String(), `"NOT_FOUND"`)
 }
 
 func TestCreatePregunta_ValidRequest_Returns201WithData(t *testing.T) {

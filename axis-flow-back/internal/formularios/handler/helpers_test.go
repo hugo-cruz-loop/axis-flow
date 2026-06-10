@@ -84,7 +84,7 @@ func TestRespondPaginated_EmitsMetaBlock(t *testing.T) {
 
 func TestRespondError_EmitsErrorEnvelopeWithCodeAndMessage(t *testing.T) {
 	rr := httptest.NewRecorder()
-	respondError(rr, http.StatusForbidden, "forbidden", "access denied")
+	respondError(rr, http.StatusForbidden, "FORBIDDEN", "access denied")
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status: want 403, got %d", rr.Code)
@@ -100,8 +100,8 @@ func TestRespondError_EmitsErrorEnvelopeWithCodeAndMessage(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected error object, got %T", body["error"])
 	}
-	if errObj["code"] != "forbidden" {
-		t.Fatalf("error.code: want forbidden, got %v", errObj["code"])
+	if errObj["code"] != "FORBIDDEN" {
+		t.Fatalf("error.code: want FORBIDDEN, got %v", errObj["code"])
 	}
 	if errObj["message"] != "access denied" {
 		t.Fatalf("error.message: want access denied, got %v", errObj["message"])
@@ -276,11 +276,11 @@ func TestMapFormulariosError_Sentinels(t *testing.T) {
 		wantStatus int
 		wantCode   string
 	}{
-		{"ErrNotFound→404", formularios.ErrNotFound, http.StatusNotFound, "not_found"},
-		{"ErrForbidden→403", formularios.ErrForbidden, http.StatusForbidden, "forbidden"},
-		{"ErrInvalidInput→422", formularios.ErrInvalidInput, http.StatusUnprocessableEntity, "invalid_payload"},
-		{"ErrConflict→409", formularios.ErrConflict, http.StatusConflict, "conflict"},
-		{"Unknown→500", errors.New("boom"), http.StatusInternalServerError, "internal_error"},
+		{"ErrNotFound→404", formularios.ErrNotFound, http.StatusNotFound, "NOT_FOUND"},
+		{"ErrForbidden→403", formularios.ErrForbidden, http.StatusForbidden, "FORBIDDEN"},
+		{"ErrInvalidInput→422", formularios.ErrInvalidInput, http.StatusUnprocessableEntity, "VALIDATION_ERROR"},
+		{"ErrConflict→409", formularios.ErrConflict, http.StatusConflict, "CONFLICT"},
+		{"Unknown→500", errors.New("boom"), http.StatusInternalServerError, "INTERNAL_ERROR"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

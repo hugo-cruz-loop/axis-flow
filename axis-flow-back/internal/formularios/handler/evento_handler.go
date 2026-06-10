@@ -102,30 +102,30 @@ type createEventoRequest struct {
 func (h *EventoHandler) CreateEvento(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthorized", "missing tenant")
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
 		return
 	}
 
 	var req createEventoRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid request body")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid request body")
 		return
 	}
 	if strings.TrimSpace(req.Nombre) == "" {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "nombre is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "nombre is required")
 		return
 	}
 	if req.FechaProgramada.IsZero() {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "fecha_programada is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "fecha_programada is required")
 		return
 	}
 	if req.ClienteID == uuid.Nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "cliente_id is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "cliente_id is required")
 		return
 	}
 	// IDOR: the body's empresa_id MUST equal the JWT tenant.
 	if req.EmpresaID != tenantID {
-		respondError(w, http.StatusForbidden, "forbidden", "tenant mismatch")
+		respondError(w, http.StatusForbidden, "FORBIDDEN", "tenant mismatch")
 		return
 	}
 
@@ -174,7 +174,7 @@ type iniciarEventoRequest struct {
 func (h *EventoHandler) IniciarEvento(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthorized", "missing tenant")
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
 		return
 	}
 	_ = tenantID // tenant check happens at the service via the parent evento
@@ -186,15 +186,15 @@ func (h *EventoHandler) IniciarEvento(w http.ResponseWriter, r *http.Request) {
 
 	var req iniciarEventoRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid request body")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid request body")
 		return
 	}
 	if req.EventoID == uuid.Nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "evento_id is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "evento_id is required")
 		return
 	}
 	if req.EmpleadoID <= 0 && empleadoID <= 0 {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "empleado_id is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "empleado_id is required")
 		return
 	}
 	if empleadoID <= 0 {
@@ -202,7 +202,7 @@ func (h *EventoHandler) IniciarEvento(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.GeolocalizacionInicio != nil {
 		if !validLatLonHTTP(req.GeolocalizacionInicio.Latitud, req.GeolocalizacionInicio.Longitud) {
-			respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid geolocalizacion")
+			respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid geolocalizacion")
 			return
 		}
 	}
@@ -233,21 +233,21 @@ func (h *EventoHandler) IniciarEvento(w http.ResponseWriter, r *http.Request) {
 func (h *EventoHandler) GetEventosByEmpCte(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthorized", "missing tenant")
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
 		return
 	}
 	empresaID, err := uuid.Parse(chi.URLParam(r, "empId"))
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid empresa id")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid empresa id")
 		return
 	}
 	clienteID, err := uuid.Parse(chi.URLParam(r, "cteId"))
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid cliente id")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid cliente id")
 		return
 	}
 	if empresaID != tenantID {
-		respondError(w, http.StatusForbidden, "forbidden", "tenant mismatch")
+		respondError(w, http.StatusForbidden, "FORBIDDEN", "tenant mismatch")
 		return
 	}
 

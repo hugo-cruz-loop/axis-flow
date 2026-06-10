@@ -146,7 +146,7 @@ type createRespuestaJSONRequest struct {
 func (h *RespuestaHandler) SubmitRespuesta(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthorized", "missing tenant")
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
 		return
 	}
 	_ = tenantID
@@ -154,7 +154,7 @@ func (h *RespuestaHandler) SubmitRespuesta(w http.ResponseWriter, r *http.Reques
 	ct := r.Header.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(ct)
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "unsupported content type")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "unsupported content type")
 		return
 	}
 
@@ -164,26 +164,26 @@ func (h *RespuestaHandler) SubmitRespuesta(w http.ResponseWriter, r *http.Reques
 	case "multipart/form-data":
 		h.submitRespuestaMultipart(w, r, params)
 	default:
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "unsupported content type")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "unsupported content type")
 	}
 }
 
 func (h *RespuestaHandler) submitRespuestaJSON(w http.ResponseWriter, r *http.Request, _ map[string]string) {
 	var req createRespuestaJSONRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid request body")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid request body")
 		return
 	}
 	if req.EventoIniciadoID == uuid.Nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "evento_iniciado_id is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "evento_iniciado_id is required")
 		return
 	}
 	if req.PreguntaID == uuid.Nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "pregunta_id is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "pregunta_id is required")
 		return
 	}
 	if len(req.RespuestaLista) == 0 {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "respuesta_lista is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "respuesta_lista is required")
 		return
 	}
 
@@ -241,24 +241,24 @@ func (h *RespuestaHandler) submitRespuestaMultipart(w http.ResponseWriter, r *ht
 	// it is invoked, so any regression is caught by the test suite.
 
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid multipart payload")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid multipart payload")
 		return
 	}
 
 	if _, err := parseUUIDField(r, "evento_iniciado_id"); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "evento_iniciado_id is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "evento_iniciado_id is required")
 		return
 	}
 	if _, err := parseUUIDField(r, "formulario_id"); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "formulario_id is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "formulario_id is required")
 		return
 	}
 	if _, err := parseUUIDField(r, "pregunta_id"); err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "pregunta_id is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "pregunta_id is required")
 		return
 	}
 	if len(json.RawMessage(r.FormValue("respuesta_lista"))) == 0 {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "respuesta_lista is required")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "respuesta_lista is required")
 		return
 	}
 
@@ -266,7 +266,7 @@ func (h *RespuestaHandler) submitRespuestaMultipart(w http.ResponseWriter, r *ht
 	// whitelisted content types) → 422 with the specific message.
 	_, _, _, err := collectMultipartEvidencias(r)
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", err.Error())
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
 		return
 	}
 
@@ -383,13 +383,13 @@ func geoPtrsFromBody(g *geoDTO) (*float64, *float64) {
 func (h *RespuestaHandler) GetReportePDF(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "unauthorized", "missing tenant")
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant")
 		return
 	}
 
 	preguntaID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		respondError(w, http.StatusUnprocessableEntity, "invalid_payload", "invalid pregunta id")
+		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid pregunta id")
 		return
 	}
 	_ = preguntaID
