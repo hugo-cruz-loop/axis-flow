@@ -95,13 +95,20 @@ func extractUserID(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(raw)
 }
 
-// extractEmpleadoID reads the empleado int64 from the JWT context. The
-// current middleware.JWTAuth does NOT populate this key (production JWT
-// schema has no empleado_id claim). The handler still reads it for
-// /evento_iniciado; PR-5 will wire the missing claim (see Deviation #3).
+// extractEmpleadoID reads the empleado int64 from the JWT context.
+// PR-4 AMEND (FIX 5): a zero value is treated the same as a missing
+// key — the handler refuses to fall back to the request body's
+// empleado_id (which would let a client spoof the identity of
+// another employee). The handler is the trust boundary; the JWT
+// issuer MUST put a non-zero empleado id in the claim. PR-5 will
+// wire the claim into the production JWT schema (see Deviation #3
+// in apply-progress).
 func extractEmpleadoID(r *http.Request) (int64, error) {
 	v, ok := r.Context().Value(middleware.ContextKeyEmpleadoID).(int64)
 	if !ok {
+		return 0, errors.New("missing empleado id")
+	}
+	if v == 0 {
 		return 0, errors.New("missing empleado id")
 	}
 	return v, nil

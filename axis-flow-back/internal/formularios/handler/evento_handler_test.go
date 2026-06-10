@@ -14,6 +14,7 @@ import (
 
 	"axis-flow-back/internal/formularios"
 	formshandler "axis-flow-back/internal/formularios/handler"
+	"axis-flow-back/internal/middleware"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -208,7 +209,11 @@ func TestIniciarEvento_NoJWT_Returns401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func TestIniciarEvento_MissingEmpleadoID_Returns422(t *testing.T) {
+func TestIniciarEvento_MissingEmpleadoID_Returns401(t *testing.T) {
+	// PR-4 AMEND (FIX 5): the handler MUST require the empleado_id
+	// claim from the JWT context. If the claim is absent OR zero, the
+	// handler short-circuits with 401 UNAUTHORIZED "missing empleado
+	// claim" — body fallback is no longer accepted.
 	svc := &mockEventoService{}
 	h := formshandler.NewEventoHandler(svc)
 
@@ -224,7 +229,75 @@ func TestIniciarEvento_MissingEmpleadoID_Returns422(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.IniciarEvento(w, r)
 
-	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"missing/zero JWT empleado_id → 401 UNAUTHORIZED, body: %s", w.Body.String())
+	assert.Contains(t, w.Body.String(), `"UNAUTHORIZED"`)
+	assert.Contains(t, w.Body.String(), "missing empleado claim")
+}
+
+// TestIniciarEvento_BodyEmpleadoIDOverriddenByJWT verifies FIX 5's
+// invariant: the body field is IGNORED. The service receives the
+// JWT's empleado_id, never the body's.
+func TestIniciarEvento_BodyEmpleadoIDOverriddenByJWT(t *testing.T) {
+	tenantID := uuid.New()
+	userID := uuid.New()
+	const jwtEmpleadoID int64 = 42
+	const bodyEmpleadoID int64 = 99 // would-be attacker tries to spoof
+
+	svc := &mockEventoService{
+		iniciarEventoFn: func(_ context.Context, ei *formularios.EventoIniciado, _ uuid.UUID) (*formularios.EventoIniciado, error) {
+			require.Equal(t, jwtEmpleadoID, ei.EmpleadoID,
+				"service MUST receive the JWT empleado_id (%d), NOT the body's (%d) — FIX 5 anti-spoof",
+				jwtEmpleadoID, bodyEmpleadoID)
+			ei.ID = uuid.New()
+			return ei, nil
+		},
+	}
+	h := formshandler.NewEventoHandler(svc)
+
+	body, _ := json.Marshal(map[string]any{
+		"evento_id":   uuid.New(),
+		"empleado_id": bodyEmpleadoID, // attacker value
+	})
+	r := httptest.NewRequest(http.MethodPost, "/evento_iniciado", bytes.NewReader(body))
+	// JWT sets a different empleado_id.
+	r = injectFormulariosCtx(r, tenantID.String(), userID.String(), jwtEmpleadoID, "Empleado")
+	w := httptest.NewRecorder()
+	h.IniciarEvento(w, r)
+
+	require.Equal(t, http.StatusCreated, w.Code, "happy path → 201, body: %s", w.Body.String())
+}
+
+// TestIniciarEvento_MissingJWTClaim_Returns401 verifies FIX 5's hard
+// requirement: when the JWT context has no empleado_id claim (not
+// even 0), the handler returns 401 — regardless of any body field
+// that might be present.
+func TestIniciarEvento_MissingJWTClaim_Returns401(t *testing.T) {
+	svc := &mockEventoService{
+		iniciarEventoFn: func(_ context.Context, _ *formularios.EventoIniciado, _ uuid.UUID) (*formularios.EventoIniciado, error) {
+			t.Fatal("service must NOT be called when JWT has no empleado_id claim")
+			return nil, nil
+		},
+	}
+	h := formshandler.NewEventoHandler(svc)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+	body, _ := json.Marshal(map[string]any{
+		"evento_id":   uuid.New(),
+		"empleado_id": 99, // body has a value, but the JWT doesn't
+	})
+	r2 := httptest.NewRequest(http.MethodPost, "/evento_iniciado", bytes.NewReader(body))
+	r2 = r2.WithContext(context.WithValue(r2.Context(), middleware.ContextKeyTenantID, tenantID.String()))
+	r2 = r2.WithContext(context.WithValue(r2.Context(), middleware.ContextKeyUserID, userID.String()))
+	r2 = r2.WithContext(context.WithValue(r2.Context(), middleware.ContextKeyRole, "Empleado"))
+	// Deliberately no ContextKeyEmpleadoID.
+
+	w := httptest.NewRecorder()
+	h.IniciarEvento(w, r2)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"missing JWT empleado_id claim → 401 regardless of body field")
 }
 
 func TestIniciarEvento_InvalidGeoLat_Returns422(t *testing.T) {

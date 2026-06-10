@@ -153,14 +153,18 @@ func (h *EventoHandler) CreateEvento(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 // iniciarEventoRequest is the JSON body for POST /evento_iniciado.
-// empleado_id is accepted in the body for backwards compatibility with
-// the spec's example (the openapi sample shows 5f3a1e0b as a number).
-// The handler ALSO pulls EmpleadoID from the JWT context and uses that
-// when the body field is zero — defence in depth against body-spoofing.
+//
+// PR-4 AMEND (FIX 5): the EmpleadoID field is kept in the struct
+// for backward-compat with the openapi example and to keep the JSON
+// parser happy with unknown-field tolerance, but the value is
+// NEVER used by the handler. The JWT's empleado_id is the only
+// source of truth. The handler reads `empleado_id` from the body
+// into this field and then ignores it — clients cannot spoof the
+// identity of another employee by tampering with the body.
 type iniciarEventoRequest struct {
-	EventoID             uuid.UUID `json:"evento_id"`
-	EmpleadoID           int64     `json:"empleado_id"`
-	GeolocalizacionInicio *geoDTO  `json:"geolocalizacion_inicio,omitempty"`
+	EventoID              uuid.UUID `json:"evento_id"`
+	EmpleadoID            int64     `json:"empleado_id"`
+	GeolocalizacionInicio *geoDTO   `json:"geolocalizacion_inicio,omitempty"`
 }
 
 // IniciarEvento handles POST /evento_iniciado. Requires JWT with role
@@ -171,6 +175,13 @@ type iniciarEventoRequest struct {
 //
 // Geolocalizacion is validated at the handler for defense in depth (the
 // service also enforces the lat/lon range).
+//
+// PR-4 AMEND (FIX 5): the handler REQUIRES the empleado_id claim
+// from the JWT context. A body-supplied empleado_id is IGNORED — the
+// service receives the JWT's value verbatim. This prevents a client
+// from spoofing another employee's id by tampering with the request
+// body. When the JWT claim is missing or zero, the handler returns
+// 401 UNAUTHORIZED with the message "missing empleado claim".
 func (h *EventoHandler) IniciarEvento(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
@@ -179,10 +190,13 @@ func (h *EventoHandler) IniciarEvento(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = tenantID // tenant check happens at the service via the parent evento
 
-	// Prefer the JWT-claim EmpleadoID; fall back to the body field if
-	// the claim is missing (production TODO — see Deviation #3 in
-	// apply-progress).
-	empleadoID, _ := extractEmpleadoID(r)
+	// Require the empleado id from the JWT. The body field is
+	// parsed but never trusted (see iniciarEventoRequest below).
+	empleadoID, err := extractEmpleadoID(r)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing empleado claim")
+		return
+	}
 
 	var req iniciarEventoRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -193,19 +207,20 @@ func (h *EventoHandler) IniciarEvento(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "evento_id is required")
 		return
 	}
-	if req.EmpleadoID <= 0 && empleadoID <= 0 {
-		respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "empleado_id is required")
-		return
-	}
-	if empleadoID <= 0 {
-		empleadoID = req.EmpleadoID
-	}
 	if req.GeolocalizacionInicio != nil {
 		if !validLatLonHTTP(req.GeolocalizacionInicio.Latitud, req.GeolocalizacionInicio.Longitud) {
 			respondError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "invalid geolocalizacion")
 			return
 		}
 	}
+
+	// FIX 5: even though iniciarEventoRequest still has an
+	// EmpleadoID field (kept for backward-compat with the openapi
+	// example), the value is NEVER used. The JWT's empleado id is
+	// the only source of truth. The struct field is left in place
+	// so existing JSON parsers don't fail on the unknown key, but
+	// req.EmpleadoID is intentionally not read.
+	_ = req.EmpleadoID
 
 	ei := &formularios.EventoIniciado{
 		EventoID:                 req.EventoID,

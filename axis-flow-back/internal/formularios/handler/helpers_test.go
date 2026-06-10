@@ -250,6 +250,20 @@ func TestExtractEmpleadoID_HappyPath(t *testing.T) {
 	}
 }
 
+// TestExtractEmpleadoID_Zero_ReturnsError is the PR-4 AMEND (FIX 5)
+// invariant: a zero value is NOT a valid empleado id. The handler
+// must surface 401 in that case (the JWT issuer is expected to put
+// the real empleado id in the claim; if it didn't, the handler
+// refuses to fall back to the body).
+func TestExtractEmpleadoID_Zero_ReturnsError(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/x", nil)
+	r = r.WithContext(context.WithValue(r.Context(), middleware.ContextKeyEmpleadoID, int64(0)))
+	_, err := extractEmpleadoID(r)
+	if err == nil {
+		t.Fatal("expected error on zero empleado id, got nil")
+	}
+}
+
 func TestExtractRole_EmptyWhenMissing(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/x", nil)
 	if got := extractRole(r); got != "" {
