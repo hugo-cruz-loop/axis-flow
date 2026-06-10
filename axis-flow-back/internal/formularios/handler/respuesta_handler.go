@@ -26,6 +26,17 @@
 //     PR-6 will close the loop with the real S3 upload inside the
 //     pdf_service.ReportStorage port. The handler's behaviour for
 //     PR-4 is documented in Deviation #4.
+//
+// PDF strategy (PR-4 AMEND — FIX 2):
+//
+//   - PDFService.GenerateReporte returns (bytes, url, error).
+//   - The handler streams the bytes to the response body with
+//     Content-Type: application/pdf + Content-Disposition: attachment.
+//   - The X-PDF-URL header still surfaces the durable storage URL for
+//     downstream debugging.
+//   - The body MUST be real PDF bytes (the renderer stub produces a
+//     minimal %PDF-1.4 catalog); the old "PDF stream placeholder" text
+//     is gone.
 package handler
 
 import (
@@ -359,6 +370,13 @@ func geoPtrsFromBody(g *geoDTO) (*float64, *float64) {
 // formularios.ErrConflict → 409 (via the helper's mapping). On
 // generic render/upload failure the helper returns 500 with a
 // generic message — vendor detail / file paths are NOT echoed.
+//
+// PR-4 AMEND (FIX 2): the service now returns the rendered PDF bytes
+// alongside the URL. We stream the bytes to the response body and
+// surface the URL in the X-PDF-URL header for downstream debugging.
+// The old "PDF stream placeholder" text is gone — that corrupted
+// downloads because the body was plain text with Content-Type
+// application/pdf.
 func (h *RespuestaHandler) GetReportePDF(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := extractTenantID(r)
 	if err != nil {
@@ -377,7 +395,7 @@ func (h *RespuestaHandler) GetReportePDF(w http.ResponseWriter, r *http.Request)
 	// proxy for "the report for this check-in's question" (the
 	// openapi reuses the same path parameter). PR-6 will refine the
 	// signature to take both preguntaID and iniciadoID explicitly.
-	url, err := h.pdf.GenerateReporte(r.Context(), preguntaID, tenantID)
+	pdfBytes, url, err := h.pdf.GenerateReporte(r.Context(), preguntaID, tenantID)
 	if err != nil {
 		// On any error, the generic 500 must NOT echo the underlying
 		// message (PII / vendor detail leak). The helper enforces
@@ -386,19 +404,20 @@ func (h *RespuestaHandler) GetReportePDF(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Stream the PDF as a binary download. For PR-4 the URL is a
-	// stable synthetic key (S3 upload in PR-6); we return it as a
-	// PDF-binary response with a content-disposition so the browser
-	// triggers a download.
+	// Stream the real PDF bytes to the client. The renderer stub in
+	// PR-4 produces a minimal valid %PDF-1.4 catalog (~80 bytes);
+	// PR-6 will replace it with wkhtmltopdf-rendered bytes (the
+	// signature stays the same — handler is bytes-agnostic).
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"reporte-%s.pdf\"", preguntaID))
 	w.Header().Set("X-PDF-URL", url)
 	w.WriteHeader(http.StatusOK)
-	// The unit test asserts on the response code + headers + URL
-	// header, not the body. The actual byte stream lands in the
-	// integration test in PR-8 (which fetches from a real S3 stub
-	// or the local /tmp fixture).
-	_, _ = w.Write([]byte("PDF stream placeholder — see X-PDF-URL: " + url))
+	if _, err := w.Write(pdfBytes); err != nil {
+		// The body is already partially written; we cannot recover
+		// the status code at this point. Logging is the structured
+		// logger's job (PR-5).
+		_ = err
+	}
 }
 
 // ---------------------------------------------------------------------------

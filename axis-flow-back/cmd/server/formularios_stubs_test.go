@@ -73,8 +73,17 @@ func (s *stubRespuestaSvc) GetRespuestasByIniciado(_ context.Context, _ uuid.UUI
 
 // ── stubPDFSvc ───────────────────────────────────────────────────────────
 
+// stubPDFSvc implements service.PDFService. PR-4 AMEND (FIX 2): the
+// interface now returns (bytes, url, error). The route harness never
+// inspects the body (it only walks the route matrix) so we return a
+// minimal %PDF-1.4 stub.
 type stubPDFSvc struct{}
 
-func (s *stubPDFSvc) GenerateReporte(_ context.Context, _, _ uuid.UUID) (string, error) {
-	return "https://s3.example.com/reports/stub.pdf", nil
+func (s *stubPDFSvc) GenerateReporte(_ context.Context, _, _ uuid.UUID) ([]byte, string, error) {
+	return []byte(
+		"%PDF-1.4\n" +
+			"1 0 obj<</Type/Catalog>>endobj\n" +
+			"trailer<</Root 1 0 R>>\n" +
+			"%%EOF\n",
+	), "https://s3.example.com/reports/stub.pdf", nil
 }

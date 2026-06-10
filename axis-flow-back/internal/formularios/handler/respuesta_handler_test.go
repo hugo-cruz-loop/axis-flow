@@ -48,13 +48,16 @@ func (m *mockRespuestaService) GetRespuestasByIniciado(ctx context.Context, inic
 
 // ---------------------------------------------------------------------------
 // mockPDFService — implements service.PDFService.
+//
+// PR-4 AMEND (FIX 2): the service signature now returns
+// (bytes, url, error). The handler streams the bytes to the client.
 // ---------------------------------------------------------------------------
 
 type mockPDFService struct {
-	generateReporteFn func(ctx context.Context, iniciadoID, empresaID uuid.UUID) (string, error)
+	generateReporteFn func(ctx context.Context, iniciadoID, empresaID uuid.UUID) ([]byte, string, error)
 }
 
-func (m *mockPDFService) GenerateReporte(ctx context.Context, iniciadoID, empresaID uuid.UUID) (string, error) {
+func (m *mockPDFService) GenerateReporte(ctx context.Context, iniciadoID, empresaID uuid.UUID) ([]byte, string, error) {
 	return m.generateReporteFn(ctx, iniciadoID, empresaID)
 }
 
@@ -402,10 +405,19 @@ func TestGetReportePDF_ValidRequest_Returns200WithPDFBody(t *testing.T) {
 	userID := uuid.New()
 	preguntaID := uuid.New()
 	pdfURL := "https://s3.example.com/reports/test.pdf"
+	// PR-4 AMEND (FIX 2): a minimal valid PDF stub. The handler
+	// streams these bytes to the client — the body must start with
+	// the %PDF-1.4 magic, never a plain-text placeholder.
+	pdfBytes := []byte(
+		"%PDF-1.4\n" +
+			"1 0 obj<</Type/Catalog>>endobj\n" +
+			"trailer<</Root 1 0 R>>\n" +
+			"%%EOF\n",
+	)
 	svc := &mockRespuestaService{}
 	pdf := &mockPDFService{
-		generateReporteFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (string, error) {
-			return pdfURL, nil
+		generateReporteFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) ([]byte, string, error) {
+			return pdfBytes, pdfURL, nil
 		},
 	}
 	h := formshandler.NewRespuestaHandler(svc, pdf)
@@ -420,6 +432,17 @@ func TestGetReportePDF_ValidRequest_Returns200WithPDFBody(t *testing.T) {
 	assert.Equal(t, "application/pdf", w.Header().Get("Content-Type"))
 	assert.Contains(t, w.Header().Get("Content-Disposition"), "reporte-")
 	assert.Equal(t, pdfURL, w.Header().Get("X-PDF-URL"))
+	// PR-4 AMEND (FIX 2): the response body must contain the real
+	// PDF bytes from the service — first 8 bytes = the PDF magic.
+	body := w.Body.Bytes()
+	require.True(t, len(body) >= 8, "body must be at least 8 bytes (the %PDF-1.4 magic)")
+	assert.Equal(t, "%PDF-1.4", string(body[:8]),
+		"response body must start with the PDF magic, got %q", string(body[:min(8, len(body))]))
+	// Body must NOT be the old placeholder string.
+	assert.NotContains(t, string(body), "PDF stream placeholder", "old placeholder text must be gone")
+	// And the trailing %%EOF must be present (sanity check on the
+	// tail of the deterministic stub).
+	assert.Contains(t, string(body), "%%EOF", "EOF marker must be present in the stub")
 }
 
 func TestGetReportePDF_ServiceErrNotFound_Returns404(t *testing.T) {
@@ -428,8 +451,8 @@ func TestGetReportePDF_ServiceErrNotFound_Returns404(t *testing.T) {
 	preguntaID := uuid.New()
 	svc := &mockRespuestaService{}
 	pdf := &mockPDFService{
-		generateReporteFn: func(_ context.Context, _, _ uuid.UUID) (string, error) {
-			return "", formularios.ErrNotFound
+		generateReporteFn: func(_ context.Context, _, _ uuid.UUID) ([]byte, string, error) {
+			return nil, "", formularios.ErrNotFound
 		},
 	}
 	h := formshandler.NewRespuestaHandler(svc, pdf)
@@ -451,8 +474,8 @@ func TestGetReportePDF_GenericErrorMessageHasNoPII(t *testing.T) {
 	preguntaID := uuid.New()
 	svc := &mockRespuestaService{}
 	pdf := &mockPDFService{
-		generateReporteFn: func(_ context.Context, _, _ uuid.UUID) (string, error) {
-			return "", assertAnErrorWithPII("wkhtmltopdf: signal killed on /tmp/formularios/<secret>")
+		generateReporteFn: func(_ context.Context, _, _ uuid.UUID) ([]byte, string, error) {
+			return nil, "", assertAnErrorWithPII("wkhtmltopdf: signal killed on /tmp/formularios/<secret>")
 		},
 	}
 	h := formshandler.NewRespuestaHandler(svc, pdf)
@@ -467,6 +490,16 @@ func TestGetReportePDF_GenericErrorMessageHasNoPII(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.NotContains(t, body, "wkhtmltopdf", "vendor detail must not leak")
 	assert.NotContains(t, body, "/tmp/formularios", "internal paths must not leak")
+}
+
+// min returns the smaller of two ints. Local helper so the test does
+// not need an extra import (Go 1.21+ has builtin min but we keep this
+// file hermetic).
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // assertAnErrorWithPII is a tiny helper that returns an error whose

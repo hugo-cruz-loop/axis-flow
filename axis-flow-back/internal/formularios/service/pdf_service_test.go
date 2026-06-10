@@ -63,6 +63,17 @@ func (s *stubStorage) Upload(_ context.Context, key string, body []byte) (string
 	return s.url, s.err
 }
 
+// minimalValidPDFBytes is the deterministic %PDF-1.4 stub returned by
+// the renderer in the happy-path fixture. The handler test asserts that
+// the response body starts with the PDF magic bytes (no plain-text
+// placeholder may leak as a "PDF" — see FIX 2 in apply-progress).
+var minimalValidPDFBytes = []byte(
+	"%PDF-1.4\n" +
+		"1 0 obj<</Type/Catalog>>endobj\n" +
+		"trailer<</Root 1 0 R>>\n" +
+		"%%EOF\n",
+)
+
 // stubLocker implements service.Locker. Records the lock + pending ops.
 type stubLocker struct {
 	acquireCalls   []acquireCall
@@ -128,7 +139,7 @@ func newPDFFixture(t *testing.T) *pdfFixture {
 		respRepo: repository.NewInMemRespuestaRepository(),
 		pub:      &recordingPublisher{},
 		cache:    &stubFormularioCache{},
-		renderer: &stubRenderer{bytes: []byte("%PDF-1.4 stub bytes")},
+		renderer: &stubRenderer{bytes: minimalValidPDFBytes},
 		storage:  &stubStorage{url: "https://s3.example.com/reports/x.pdf"},
 		locker:   &stubLocker{},
 	}
@@ -174,9 +185,15 @@ func TestPDFService_GenerateReporte_HappyPath(t *testing.T) {
 	f.seed(t, empresaID, clienteID, iniciadoID)
 	svc := f.svc()
 
-	url, err := svc.GenerateReporte(context.Background(), iniciadoID, empresaID)
+	bytes, url, err := svc.GenerateReporte(context.Background(), iniciadoID, empresaID)
 	require.NoError(t, err)
 	assert.Equal(t, "https://s3.example.com/reports/x.pdf", url)
+	// FIX 2: the service must propagate the PDF bytes returned by the
+	// renderer so the handler can stream them to the client. The bytes
+	// are the same as what was uploaded to storage.
+	assert.Equal(t, f.renderer.bytes, bytes, "service must return the renderer's PDF bytes")
+	assert.True(t, len(bytes) >= 8 && string(bytes[:8]) == "%PDF-1.4",
+		"first 8 bytes of returned bytes must be the PDF magic, got %q", string(bytes[:min(8, len(bytes))]))
 
 	// Renderer was called once with HTML.
 	assert.Equal(t, 1, f.renderer.calls)
@@ -216,7 +233,7 @@ func TestPDFService_GenerateReporte_RejectsEmptyIniciado(t *testing.T) {
 	f.seed(t, empresaID, uuid.New(), uuid.New()) // seed a different iniciado ID
 
 	svc := f.svc()
-	_, err := svc.GenerateReporte(context.Background(), uuid.New() /* unknown */, empresaID)
+	_, _, err := svc.GenerateReporte(context.Background(), uuid.New() /* unknown */, empresaID)
 	require.ErrorIs(t, err, formularios.ErrNotFound)
 	assert.Equal(t, 0, f.renderer.calls, "must not render when no data")
 	assert.Equal(t, 0, f.storage.calls, "must not upload when no data")
@@ -234,7 +251,7 @@ func TestPDFService_GenerateReporte_RenderErrorPropagates(t *testing.T) {
 	f.seed(t, empresaID, uuid.New(), iniciadoID)
 	svc := f.svc()
 
-	_, err := svc.GenerateReporte(context.Background(), iniciadoID, empresaID)
+	_, _, err := svc.GenerateReporte(context.Background(), iniciadoID, empresaID)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "wkhtmltopdf: signal killed", "underlying error is wrapped but the user-facing message must not leak PII / internal stderr")
 	// Pending set is still cleaned up (defer runs).
@@ -253,7 +270,7 @@ func TestPDFService_GenerateReporte_UploadErrorPropagates(t *testing.T) {
 	f.seed(t, empresaID, uuid.New(), iniciadoID)
 	svc := f.svc()
 
-	_, err := svc.GenerateReporte(context.Background(), iniciadoID, empresaID)
+	_, _, err := svc.GenerateReporte(context.Background(), iniciadoID, empresaID)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "s3: AccessDenied", "underlying error wrapped but user-facing message must not leak internal cloud vendor detail")
 }
@@ -270,7 +287,17 @@ func TestPDFService_GenerateReporte_LockAcquireErrorPropagates(t *testing.T) {
 	f.seed(t, empresaID, uuid.New(), iniciadoID)
 	svc := f.svc()
 
-	_, err := svc.GenerateReporte(context.Background(), iniciadoID, empresaID)
+	_, _, err := svc.GenerateReporte(context.Background(), iniciadoID, empresaID)
 	require.Error(t, err)
 	assert.Equal(t, 0, f.renderer.calls, "must not render when lock cannot be acquired")
+}
+
+// min returns the smaller of two ints. Local helper so the test does
+// not need an extra import (Go 1.21+ has builtin min but we keep this
+// file hermetic).
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -6,6 +6,13 @@
 // the ReportStorage port, and publishes ReporteGenerado. The actual
 // wkhtmltopdf subprocess, Jinja2 templates, and S3 client land in
 // PR-6 (PDF/S3 Hardening); the ports below are the seam.
+//
+// PR-4 AMEND (FIX 2): the GenerateReporte signature now returns
+// (bytes, url, error). The handler streams the bytes to the client
+// (no more "PDF stream placeholder" string with Content-Type
+// application/pdf — that was corrupting downloads). The renderer
+// already produced bytes; we just propagate them out of the
+// service alongside the URL.
 package service
 
 import (
@@ -45,11 +52,16 @@ type PDFService interface {
 	//   4. Publish ReporteGenerado.
 	//   5. Remove iniciadoID from KeyReportePending and release the lock.
 	//
-	// Errors: formularios.ErrNotFound if the iniciado has no respuestas
-	// (proxy for "unknown / foreign-tenant" — see Deviation #2); a
-	// wrapped error with a generic message for render / upload
-	// failures (no PII / vendor detail leaks).
-	GenerateReporte(ctx context.Context, iniciadoID, empresaID uuid.UUID) (string, error)
+	// Returns (bytes, url, error):
+	//   - bytes: the PDF binary returned by the renderer, propagated
+	//     through the service so the HTTP handler can stream the
+	//     real PDF to the client. PR-4 AMEND (FIX 2).
+	//   - url:   the durable storage URL where the PDF was uploaded.
+	//   - error: formularios.ErrNotFound if the iniciado has no
+	//     respuestas (proxy for "unknown / foreign-tenant" — see
+	//     Deviation #2); a wrapped error with a generic message for
+	//     render / upload failures (no PII / vendor detail leaks).
+	GenerateReporte(ctx context.Context, iniciadoID, empresaID uuid.UUID) ([]byte, string, error)
 }
 
 // pdfService is the concrete implementation.
@@ -98,13 +110,13 @@ func NewPDFService(
 func (s *pdfService) GenerateReporte(
 	ctx context.Context,
 	iniciadoID, empresaID uuid.UUID,
-) (string, error) {
+) ([]byte, string, error) {
 	// 1. Lock. Failure to acquire means a concurrent worker is already
 	// generating the report; we propagate so the caller can retry.
 	lockKey := fmt.Sprintf(formularios.KeyReporteS3Lock, iniciadoID)
 	unlock, err := s.locker.Acquire(ctx, lockKey, reportLockTTLSeconds)
 	if err != nil {
-		return "", fmt.Errorf("pdf: lock acquire failed")
+		return nil, "", fmt.Errorf("pdf: lock acquire failed")
 	}
 	defer func() { _ = unlock(ctx) }()
 
@@ -121,10 +133,10 @@ func (s *pdfService) GenerateReporte(
 	// service uses this as a cheap proxy).
 	respuestas, err := s.respRepo.ListByIniciado(ctx, iniciadoID)
 	if err != nil {
-		return "", fmt.Errorf("pdf: load respuestas failed")
+		return nil, "", fmt.Errorf("pdf: load respuestas failed")
 	}
 	if len(respuestas) == 0 {
-		return "", formularios.ErrNotFound
+		return nil, "", formularios.ErrNotFound
 	}
 
 	// Render the HTML template (stub in PR-3; real Jinja2 + auto-escape
@@ -138,7 +150,7 @@ func (s *pdfService) GenerateReporte(
 		// can leak template paths / flag internals. We surface a
 		// generic message to the caller; the structured logger (PR-5)
 		// will persist the full error for SRE.
-		return "", fmt.Errorf("pdf: render failed")
+		return nil, "", fmt.Errorf("pdf: render failed")
 	}
 
 	// Upload. Same convention: vendor detail (S3 error codes, internal
@@ -146,7 +158,7 @@ func (s *pdfService) GenerateReporte(
 	key := buildReporteS3Key(iniciadoID)
 	url, err := s.storage.Upload(ctx, key, pdfBytes)
 	if err != nil {
-		return "", fmt.Errorf("pdf: upload failed")
+		return nil, "", fmt.Errorf("pdf: upload failed")
 	}
 
 	// 4. Publish + best-effort cache invalidation. PDF generation
@@ -162,7 +174,13 @@ func (s *pdfService) GenerateReporte(
 		"empresa_id":         empresaID,
 	})
 
-	return url, nil
+	// PR-4 AMEND (FIX 2): propagate the rendered PDF bytes so the
+	// HTTP handler can stream them to the client. The bytes have
+	// already been uploaded to S3 (line above); returning them
+	// here is the second use — the response body. PR-6 may replace
+	// this with a redirect-to-S3 if the bytes are too large to
+	// inline; for PR-4 the bytes are the small stub PDF.
+	return pdfBytes, url, nil
 }
 
 // buildReporteHTML is a minimal HTML stub for PR-3. The real Jinja2
