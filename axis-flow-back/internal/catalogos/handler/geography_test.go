@@ -36,7 +36,7 @@ func (m *mockCountryRepo) Create(ctx context.Context, c *domain.Country) error {
 	return m.createFn(ctx, c)
 }
 func (m *mockCountryRepo) Update(_ context.Context, _ *domain.Country) error { return nil }
-func (m *mockCountryRepo) Delete(_ context.Context, _ int64) error            { return nil }
+func (m *mockCountryRepo) Delete(_ context.Context, _ int64) error           { return nil }
 
 type mockStateRepo struct{}
 
@@ -48,7 +48,7 @@ func (m *mockStateRepo) FindByID(_ context.Context, _ int64) (*domain.State, err
 }
 func (m *mockStateRepo) Create(_ context.Context, _ *domain.State) error { return nil }
 func (m *mockStateRepo) Update(_ context.Context, _ *domain.State) error { return nil }
-func (m *mockStateRepo) Delete(_ context.Context, _ int64) error          { return nil }
+func (m *mockStateRepo) Delete(_ context.Context, _ int64) error         { return nil }
 
 type mockCityRepo struct {
 	listFn func(ctx context.Context, stateID int64) ([]domain.City, error)

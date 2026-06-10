@@ -65,11 +65,11 @@ type Presupuesto struct {
 
 // CalendarioLaboral defines working days and non-working days for a cliente (1:1, JSONB).
 type CalendarioLaboral struct {
-	ClienteID      uuid.UUID
-	SemanaLaboral  map[string]any // e.g. {"monday":true,...}
-	DiasInhabiles  map[string]any // e.g. [] stored as map or use []any — JSON flexible
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ClienteID     uuid.UUID
+	SemanaLaboral map[string]any // e.g. {"monday":true,...}
+	DiasInhabiles map[string]any // e.g. [] stored as map or use []any — JSON flexible
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Localidad represents a branch/site for a cliente (1:N).
@@ -98,14 +98,14 @@ type ServiciosLocalidad struct {
 
 // Horario defines entry/exit times for a localidad.
 type Horario struct {
-	ID                uuid.UUID
-	LocalidadID       uuid.UUID
-	HoraEntrada       string // "HH:MM" — time.Time not needed for time-only fields
-	HoraSalida        string
-	HoraComidaInicio  *string
-	HoraComidaFin     *string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID               uuid.UUID
+	LocalidadID      uuid.UUID
+	HoraEntrada      string // "HH:MM" — time.Time not needed for time-only fields
+	HoraSalida       string
+	HoraComidaInicio *string
+	HoraComidaFin    *string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Herramienta represents a tool/equipment assigned to a localidad.
@@ -144,9 +144,9 @@ type EvaluacionServicio struct {
 
 // QualityGateStatus summarises which sections are complete for a cliente activation check.
 type QualityGateStatus struct {
-	ClienteID       uuid.UUID
-	FacturaOK       bool
-	PresupuestoOK   bool
-	CalendarioOK    bool
-	CanActivate     bool
+	ClienteID     uuid.UUID
+	FacturaOK     bool
+	PresupuestoOK bool
+	CalendarioOK  bool
+	CanActivate   bool
 }

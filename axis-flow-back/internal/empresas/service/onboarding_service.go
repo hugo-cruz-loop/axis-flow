@@ -21,10 +21,10 @@ type OnboardingRequest struct {
 	PlanID    int64
 	PlanMonto float64 // fetched from catalog before calling service
 	// Representante data — used to create the admin user for this empresa
-	RepresentanteEmail      string
-	RepresentanteNombre     string
-	RepresentanteApPaterno  string
-	RepresentanteApMaterno  string
+	RepresentanteEmail     string
+	RepresentanteNombre    string
+	RepresentanteApPaterno string
+	RepresentanteApMaterno string
 }
 
 // OnboardingResult is returned on successful onboarding.

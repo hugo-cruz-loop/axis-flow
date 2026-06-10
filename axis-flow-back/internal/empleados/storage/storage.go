@@ -23,9 +23,9 @@ type FileStorage interface {
 // ValidateMIME inspects the magic bytes of a file header and returns an error
 // if the type is not PDF, PNG, or JPG.
 //
-//   PDF: %PDF   (25 50 44 46)
-//   PNG: \x89PNG (89 50 4E 47)
-//   JPG: \xFF\xD8\xFF (FF D8 FF)
+//	PDF: %PDF   (25 50 44 46)
+//	PNG: \x89PNG (89 50 4E 47)
+//	JPG: \xFF\xD8\xFF (FF D8 FF)
 func ValidateMIME(header []byte) error {
 	if len(header) >= 4 {
 		if header[0] == 0x25 && header[1] == 0x50 && header[2] == 0x44 && header[3] == 0x46 {

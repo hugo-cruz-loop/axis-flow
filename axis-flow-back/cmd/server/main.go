@@ -525,6 +525,17 @@ func main() {
 		registerEmpleadosRoutes(r, empleadosRoutes, empleadosGateway)
 	})
 
+	// ── Cursos module ─────────────────────────────────────────────────────────
+	cursosModule := newCursosModule(dbPool, redisClient, cfg)
+	registerCursosRoutes(r, cursosModule, middleware.JWTAuth(authSvc), middleware.RequireRoles)
+
+	// ── BolsaTrabajo module ───────────────────────────────────────────────────
+	bolsaModule := newBolsaTrabajoModule(dbPool, redisClient, cfg)
+	registerBolsaTrabajoRoutes(r, bolsaModule, middleware.JWTAuth(authSvc), middleware.RequireRoles)
+	// Start the cross-domain event consumer in a background goroutine.
+	// It exits cleanly when the app context is cancelled on shutdown.
+	bolsaModule.Consumer.Start(ctx)
+
 	// ── Clientes module ───────────────────────────────────────────────────────
 	clienteRepo := clientesRepo.NewPgxClienteRepository(dbPool)
 	satelliteRepo := clientesRepo.NewPgxSatelliteRepository(dbPool)

@@ -348,10 +348,10 @@ func (h *ProtectedHandler) CreateServicio(w http.ResponseWriter, r *http.Request
 	}
 
 	var body struct {
-		Nombre      string  `json:"nombre"`
-		Descripcion string  `json:"descripcion"`
-		Precio      float64 `json:"precio"`
-		StatusActivo bool   `json:"status_activo"`
+		Nombre       string  `json:"nombre"`
+		Descripcion  string  `json:"descripcion"`
+		Precio       float64 `json:"precio"`
+		StatusActivo bool    `json:"status_activo"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, "invalid request body", http.StatusBadRequest)
@@ -385,10 +385,10 @@ func (h *ProtectedHandler) UpdateServicio(w http.ResponseWriter, r *http.Request
 	}
 
 	var body struct {
-		Nombre      string  `json:"nombre"`
-		Descripcion string  `json:"descripcion"`
-		Precio      float64 `json:"precio"`
-		StatusActivo bool   `json:"status_activo"`
+		Nombre       string  `json:"nombre"`
+		Descripcion  string  `json:"descripcion"`
+		Precio       float64 `json:"precio"`
+		StatusActivo bool    `json:"status_activo"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, "invalid request body", http.StatusBadRequest)

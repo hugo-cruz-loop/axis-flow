@@ -73,9 +73,9 @@ type LocalidadServicer interface {
 
 // LocalidadService implements LocalidadServicer.
 type LocalidadService struct {
-	repo       LocalidadRepository
-	siteRepo   SiteConfigRepository
-	rdb        *redis.Client
+	repo     LocalidadRepository
+	siteRepo SiteConfigRepository
+	rdb      *redis.Client
 }
 
 // NewLocalidadService constructs a LocalidadService.

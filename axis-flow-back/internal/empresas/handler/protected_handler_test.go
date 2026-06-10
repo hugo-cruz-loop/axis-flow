@@ -19,10 +19,10 @@ import (
 // ── stubs ─────────────────────────────────────────────────────────────────────
 
 type stubEmpresaService struct {
-	empresa    *empresas.Empresa
-	getErr     error
-	updateErr  error
-	deleteErr  error
+	empresa     *empresas.Empresa
+	getErr      error
+	updateErr   error
+	deleteErr   error
 	deleteCalls int
 }
 

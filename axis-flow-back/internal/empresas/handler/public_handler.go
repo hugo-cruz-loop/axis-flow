@@ -36,11 +36,11 @@ func NewPublicHandler(onboarding OnboardingServicer, stripe StripeServicer) *Pub
 // Alta handles POST /api/v1/empresa/alta
 func (h *PublicHandler) Alta(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Nombre    string  `json:"nombre"`
-		Direccion string  `json:"direccion"`
-		Telefono  string  `json:"telefono"`
-		PlanID    int64   `json:"plan_id"`
-		Monto     float64 `json:"monto"`
+		Nombre        string  `json:"nombre"`
+		Direccion     string  `json:"direccion"`
+		Telefono      string  `json:"telefono"`
+		PlanID        int64   `json:"plan_id"`
+		Monto         float64 `json:"monto"`
 		Representante struct {
 			Email           string `json:"email"`
 			Nombre          string `json:"nombre"`

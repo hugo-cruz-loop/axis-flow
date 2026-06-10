@@ -31,9 +31,13 @@ func (m *mockWorkflowStatusRepo) ListByRoleID(ctx context.Context, roleID int16)
 func (m *mockWorkflowStatusRepo) FindByID(_ context.Context, _ int64) (*domain.WorkflowStatus, error) {
 	return nil, domain.ErrNotFound
 }
-func (m *mockWorkflowStatusRepo) Create(_ context.Context, _ *domain.WorkflowStatus) error { return nil }
-func (m *mockWorkflowStatusRepo) Update(_ context.Context, _ *domain.WorkflowStatus) error { return nil }
-func (m *mockWorkflowStatusRepo) Delete(_ context.Context, _ int64) error                  { return nil }
+func (m *mockWorkflowStatusRepo) Create(_ context.Context, _ *domain.WorkflowStatus) error {
+	return nil
+}
+func (m *mockWorkflowStatusRepo) Update(_ context.Context, _ *domain.WorkflowStatus) error {
+	return nil
+}
+func (m *mockWorkflowStatusRepo) Delete(_ context.Context, _ int64) error { return nil }
 
 type mockComplaintTypeRepo2 struct{}
 
@@ -49,7 +53,7 @@ func (m *mockComplaintTypeRepo2) Delete(_ context.Context, _ int64) error       
 
 type mockServiceRepo2 struct{}
 
-func (m *mockServiceRepo2) List(_ context.Context) ([]domain.Service, error)           { return nil, nil }
+func (m *mockServiceRepo2) List(_ context.Context) ([]domain.Service, error) { return nil, nil }
 func (m *mockServiceRepo2) FindByID(_ context.Context, _ int64) (*domain.Service, error) {
 	return nil, domain.ErrNotFound
 }

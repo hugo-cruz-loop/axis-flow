@@ -21,14 +21,14 @@ import (
 // ── stub ──────────────────────────────────────────────────────────────────────
 
 type stubClienteService struct {
-	createFn      func(ctx context.Context, req service.CreateClienteRequest) (*clientes.Cliente, error)
-	getFn         func(ctx context.Context, id uuid.UUID, empresaID int64) (*clientes.Cliente, error)
-	listFn        func(ctx context.Context, empresaID int64, page, size int) ([]clientes.Cliente, int, error)
-	updateFn      func(ctx context.Context, id uuid.UUID, empresaID int64, req service.UpdateClienteRequest) (*clientes.Cliente, error)
-	deleteFn      func(ctx context.Context, id uuid.UUID, empresaID int64) error
+	createFn       func(ctx context.Context, req service.CreateClienteRequest) (*clientes.Cliente, error)
+	getFn          func(ctx context.Context, id uuid.UUID, empresaID int64) (*clientes.Cliente, error)
+	listFn         func(ctx context.Context, empresaID int64, page, size int) ([]clientes.Cliente, int, error)
+	updateFn       func(ctx context.Context, id uuid.UUID, empresaID int64, req service.UpdateClienteRequest) (*clientes.Cliente, error)
+	deleteFn       func(ctx context.Context, id uuid.UUID, empresaID int64) error
 	patchEstatusFn func(ctx context.Context, id uuid.UUID, empresaID int64, estatus int) (int, *clientes.Cliente, *clientes.QualityGateStatus, error)
-	getByUserFn   func(ctx context.Context, userID uuid.UUID, empresaID int64) (*clientes.Cliente, error)
-	getStatsFn    func(ctx context.Context, empresaID int64) (int, int, error)
+	getByUserFn    func(ctx context.Context, userID uuid.UUID, empresaID int64) (*clientes.Cliente, error)
+	getStatsFn     func(ctx context.Context, empresaID int64) (int, int, error)
 }
 
 func (s *stubClienteService) CreateCliente(ctx context.Context, req service.CreateClienteRequest) (*clientes.Cliente, error) {

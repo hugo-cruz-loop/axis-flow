@@ -20,15 +20,15 @@ import (
 // ── stub ──────────────────────────────────────────────────────────────────────
 
 type stubSatelliteService struct {
-	createFacturaFn    func(ctx context.Context, f *clientes.Factura, empresaID int64, encKey string) error
-	getFacturaFn       func(ctx context.Context, clienteID uuid.UUID, empresaID int64, encKey string) (*clientes.Factura, error)
-	updateFacturaFn    func(ctx context.Context, f *clientes.Factura, empresaID int64, encKey string) error
+	createFacturaFn     func(ctx context.Context, f *clientes.Factura, empresaID int64, encKey string) error
+	getFacturaFn        func(ctx context.Context, clienteID uuid.UUID, empresaID int64, encKey string) (*clientes.Factura, error)
+	updateFacturaFn     func(ctx context.Context, f *clientes.Factura, empresaID int64, encKey string) error
 	createPresupuestoFn func(ctx context.Context, p *clientes.Presupuesto, empresaID int64) error
-	getPresupuestoFn   func(ctx context.Context, clienteID uuid.UUID, empresaID int64) (*clientes.Presupuesto, error)
+	getPresupuestoFn    func(ctx context.Context, clienteID uuid.UUID, empresaID int64) (*clientes.Presupuesto, error)
 	updatePresupuestoFn func(ctx context.Context, p *clientes.Presupuesto, empresaID int64) error
-	createCalendarioFn func(ctx context.Context, cal *clientes.CalendarioLaboral, empresaID int64) error
-	getCalendarioFn    func(ctx context.Context, clienteID uuid.UUID, empresaID int64) (*clientes.CalendarioLaboral, error)
-	updateCalendarioFn func(ctx context.Context, cal *clientes.CalendarioLaboral, empresaID int64) error
+	createCalendarioFn  func(ctx context.Context, cal *clientes.CalendarioLaboral, empresaID int64) error
+	getCalendarioFn     func(ctx context.Context, clienteID uuid.UUID, empresaID int64) (*clientes.CalendarioLaboral, error)
+	updateCalendarioFn  func(ctx context.Context, cal *clientes.CalendarioLaboral, empresaID int64) error
 	// track whether decrypt was called (via encKey presence)
 	encKeyUsed string
 }

@@ -26,6 +26,9 @@ type Config struct {
 	// Loaded from ENCRYPTION_KEY env var. Required. Never logged.
 	EncryptionKey string
 	Storage       StorageConfig
+	Recruitment   RecruitmentConfig
+	// PDF holds configuration for the PDF generation service (Gotenberg).
+	PDF PDFConfig
 }
 
 // ServerConfig contains HTTP server settings.
@@ -75,6 +78,31 @@ type ObservabilityConfig struct {
 	LogLevel             string
 	LogFormat            string
 	SentryDSN            string
+}
+
+// PDFConfig holds settings for the Gotenberg PDF generation service.
+type PDFConfig struct {
+	// Endpoint is the base URL of the Gotenberg / pdf-engine service.
+	// Loaded from PDF_ENGINE_ENDPOINT. Default: http://pdf-engine:3000.
+	Endpoint string
+	// GotenbergEnabled controls whether real PDF generation is used.
+	// When false a mock (static bytes) is returned. Default: false.
+	// Loaded from GOTENBERG_ENABLED.
+	GotenbergEnabled bool
+}
+
+// RecruitmentConfig holds settings for the BolsaDeTrabajo (job board) module.
+type RecruitmentConfig struct {
+	// TurnstileSecretKey is the Cloudflare Turnstile secret for server-side
+	// captcha validation. Loaded from TURNSTILE_SECRET_KEY. NEVER log this value.
+	TurnstileSecretKey string
+	// TurnstileEnabled controls whether the real Turnstile HTTP client is used.
+	// When false a mock (always passes) is used. Default: false.
+	// Loaded from TURNSTILE_ENABLED.
+	TurnstileEnabled bool
+	// AWSS3BucketName is the S3 bucket for CV uploads.
+	// Loaded from AWS_S3_BUCKET_NAME. Default: "checkon-recruitment-cvs".
+	AWSS3BucketName string
 }
 
 // StorageConfig holds file storage and biometric service settings.
@@ -240,6 +268,30 @@ func Load() (*Config, error) {
 		if cfg.Storage.AWSSecretAccessKey == "" {
 			errs = append(errs, "AWS_SECRET_ACCESS_KEY is required when AWS_REKOGNITION_ENABLED=true")
 		}
+	}
+
+	// Recruitment / BolsaDeTrabajo config.
+	// TurnstileSecretKey is sensitive — NEVER log it.
+	cfg.Recruitment = RecruitmentConfig{
+		TurnstileEnabled:   os.Getenv("TURNSTILE_ENABLED") == "true",
+		TurnstileSecretKey: os.Getenv("TURNSTILE_SECRET_KEY"),
+		AWSS3BucketName: func() string {
+			if v := os.Getenv("AWS_S3_BUCKET_NAME"); v != "" {
+				return v
+			}
+			return "checkon-recruitment-cvs"
+		}(),
+	}
+
+	// PDF / Gotenberg config.
+	cfg.PDF = PDFConfig{
+		Endpoint: func() string {
+			if v := os.Getenv("PDF_ENGINE_ENDPOINT"); v != "" {
+				return v
+			}
+			return "http://pdf-engine:3000"
+		}(),
+		GotenbergEnabled: os.Getenv("GOTENBERG_ENABLED") == "true",
 	}
 
 	// EncryptionKey: required, must decode to exactly 32 bytes.

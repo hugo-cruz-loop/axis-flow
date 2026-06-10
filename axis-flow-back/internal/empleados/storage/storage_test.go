@@ -14,8 +14,8 @@ import (
 
 var pdfMagic = []byte{0x25, 0x50, 0x44, 0x46} // %PDF
 var pngMagic = []byte{0x89, 0x50, 0x4E, 0x47} // \x89PNG
-var jpgMagic = []byte{0xFF, 0xD8, 0xFF}        // JPEG SOI marker
-var exeMagic = []byte{0x4D, 0x5A}              // MZ (Windows PE)
+var jpgMagic = []byte{0xFF, 0xD8, 0xFF}       // JPEG SOI marker
+var exeMagic = []byte{0x4D, 0x5A}             // MZ (Windows PE)
 
 func TestValidateMIME_PDF(t *testing.T) {
 	if err := storage.ValidateMIME(pdfMagic); err != nil {

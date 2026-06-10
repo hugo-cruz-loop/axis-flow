@@ -20,6 +20,9 @@ const ContextKeyTenantID contextKey = "tenantID"
 // ContextKeyEmail is the key used to store the authenticated user email in request context.
 const ContextKeyEmail contextKey = "email"
 
+// ContextKeyEmpleadoID is the key used to store the authenticated employee ID in request context.
+const ContextKeyEmpleadoID contextKey = "empleadoID"
+
 // JWTAuth returns a middleware that validates the Authorization: Bearer <token> header.
 // On success, it injects the user ID and tenant ID into the request context.
 // On failure, it responds with 401 Unauthorized.

@@ -16,11 +16,11 @@ import (
 // ---- Mock LocalidadRepository -----------------------------------------------
 
 type mockLocalidadRepo struct {
-	createFn      func(ctx context.Context, l *clientes.Localidad) error
-	findByIDFn    func(ctx context.Context, id uuid.UUID, empresaID int64) (*clientes.Localidad, error)
-	listFn        func(ctx context.Context, clienteID uuid.UUID, empresaID int64) ([]clientes.Localidad, error)
-	updateFn      func(ctx context.Context, l *clientes.Localidad) error
-	deleteFn      func(ctx context.Context, id uuid.UUID, empresaID int64) error
+	createFn   func(ctx context.Context, l *clientes.Localidad) error
+	findByIDFn func(ctx context.Context, id uuid.UUID, empresaID int64) (*clientes.Localidad, error)
+	listFn     func(ctx context.Context, clienteID uuid.UUID, empresaID int64) ([]clientes.Localidad, error)
+	updateFn   func(ctx context.Context, l *clientes.Localidad) error
+	deleteFn   func(ctx context.Context, id uuid.UUID, empresaID int64) error
 }
 
 func (m *mockLocalidadRepo) Create(ctx context.Context, l *clientes.Localidad) error {

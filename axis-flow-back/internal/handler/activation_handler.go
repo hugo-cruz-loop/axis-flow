@@ -84,4 +84,3 @@ func (h *ActivationHandler) ResetPass(w http.ResponseWriter, r *http.Request) {
 	slog.InfoContext(r.Context(), "reset-pass: account activated", slog.String("user_id", user.ID.String()))
 	writeJSON(w, http.StatusOK, map[string]string{"message": "account activated successfully"})
 }
-

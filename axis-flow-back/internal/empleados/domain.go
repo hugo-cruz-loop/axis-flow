@@ -10,16 +10,16 @@ import (
 
 // Status constants for empleados_empleado.status.
 const (
-	EmpleadoStatusActivo    = 1 // active employee
+	EmpleadoStatusActivo     = 1 // active employee
 	EmpleadoStatusIncompleto = 2 // onboarding incomplete (default)
-	EmpleadoStatusBaja      = 4 // terminated
+	EmpleadoStatusBaja       = 4 // terminated
 )
 
 // EstatusObservacion constants for asistencia biometric validation result.
 const (
-	ObservacionPendiente  = 1 // pending biometric review
-	ObservacionValidada   = 2 // face match passed
-	ObservacionRechazada  = 3 // face match failed
+	ObservacionPendiente = 1 // pending biometric review
+	ObservacionValidada  = 2 // face match passed
+	ObservacionRechazada = 3 // face match failed
 )
 
 // EstatusRango constants for geographic range check on clock-in.

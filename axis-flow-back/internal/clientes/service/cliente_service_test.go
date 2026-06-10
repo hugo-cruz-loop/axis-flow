@@ -19,12 +19,12 @@ import (
 // ---- Mock ClienteRepository -------------------------------------------------
 
 type mockClienteRepo struct {
-	createFn      func(ctx context.Context, c *clientes.Cliente) error
-	findByIDFn    func(ctx context.Context, id uuid.UUID, empresaID int64) (*clientes.Cliente, error)
-	findByUserFn  func(ctx context.Context, userID uuid.UUID, empresaID int64) (*clientes.Cliente, error)
-	listFn        func(ctx context.Context, empresaID int64, page, size int) ([]clientes.Cliente, int, error)
-	updateFn      func(ctx context.Context, c *clientes.Cliente) error
-	deleteFn      func(ctx context.Context, id uuid.UUID, empresaID int64) error
+	createFn       func(ctx context.Context, c *clientes.Cliente) error
+	findByIDFn     func(ctx context.Context, id uuid.UUID, empresaID int64) (*clientes.Cliente, error)
+	findByUserFn   func(ctx context.Context, userID uuid.UUID, empresaID int64) (*clientes.Cliente, error)
+	listFn         func(ctx context.Context, empresaID int64, page, size int) ([]clientes.Cliente, int, error)
+	updateFn       func(ctx context.Context, c *clientes.Cliente) error
+	deleteFn       func(ctx context.Context, id uuid.UUID, empresaID int64) error
 	patchEstatusFn func(ctx context.Context, id uuid.UUID, empresaID int64, estatus int) (int, *clientes.QualityGateStatus, error)
 }
 
@@ -223,7 +223,7 @@ func TestClienteService_PatchEstatus_Success_InvalidatesCache(t *testing.T) {
 
 	// Pre-populate cache to verify invalidation
 	key := cache.ClienteCacheKey(empresaID, id)
-	mr.Set(key, `{"id":"` + id.String() + `"}`)
+	mr.Set(key, `{"id":"`+id.String()+`"}`)
 
 	repo := &mockClienteRepo{
 		patchEstatusFn: func(_ context.Context, _ uuid.UUID, _ int64, _ int) (int, *clientes.QualityGateStatus, error) {
