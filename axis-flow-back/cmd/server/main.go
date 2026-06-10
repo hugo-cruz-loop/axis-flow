@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"axis-flow-back/internal/asignacion"
 	"axis-flow-back/internal/catalogos/repository"
 	"axis-flow-back/internal/config"
 	"axis-flow-back/internal/handler"
@@ -142,6 +143,16 @@ func main() {
 	activationHandler := handler.NewActivationHandler(activationSvc)
 	userHandler := handler.NewUserHandler(userSvc, deleteEnabled)
 	empleadosRoutes, empleadosGateway := newEmpleadosModule(dbPool, redisClient, *cfg)
+	assignmentRepo := asignacion.NewPgxAssignmentRepository(dbPool)
+	assignmentCache := asignacion.NewRedisAssignmentCacheInvalidator(redisClient)
+	activityRepo := asignacion.NewPgxAssignedActivityRepository(dbPool)
+	toolRepo := asignacion.NewPgxAssignedToolRepository(dbPool)
+	evaluationRepo := asignacion.NewPgxEmployeeEvaluationRepository(dbPool)
+	assignmentSvc := asignacion.NewAssignmentApplicationServiceWithDependencies(
+		assignmentRepo, assignmentCache, activityRepo, toolRepo, evaluationRepo,
+		nil, asignacion.NewNoOpAssignmentEventPublisher(), func() time.Time { return time.Now().UTC() },
+	)
+	assignmentHandler := asignacion.NewHTTPHandler(assignmentSvc)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -229,6 +240,12 @@ func main() {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 			})
 		}
+	})
+
+	// Assignment routes (protected; endpoint-level role checks live in the handler)
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.JWTAuth(authSvc))
+		assignmentHandler.RegisterRoutes(r)
 	})
 
 	// Role management routes (admin only)
