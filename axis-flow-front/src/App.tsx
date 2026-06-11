@@ -35,6 +35,10 @@ import { SupervisorPage } from '@/features/atencion/pages/SupervisorPage'
 import { FormBuilderPage } from '@/features/formularios/pages/FormBuilderPage'
 import { FormAssignmentPage } from '@/features/formularios/pages/FormAssignmentPage'
 import { MobileFormCapturePage } from '@/features/formularios/pages/MobileFormCapturePage'
+import { AdminEmpresaDashboard } from '@/screens/AdminEmpresaDashboard'
+import { ClienteDashboard } from '@/screens/ClienteDashboard'
+import { RHDashboard } from '@/screens/RHDashboard'
+
 
 // Role codes as stored in identity_roles.code and embedded in the JWT.
 const ADMIN_ROLES = ['ADMIN_CHECK_ON', 'ADMINISTRADOR'] as const
@@ -65,6 +69,36 @@ function App() {
         element={
           <ProtectedRoute>
             <AnalyticsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/admin-empresa"
+        element={
+          <ProtectedRoute>
+            <RoleGate allowedRoles={[...ADMIN_ROLES]}>
+              <AdminEmpresaDashboard />
+            </RoleGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/cliente"
+        element={
+          <ProtectedRoute>
+            <RoleGate allowedRoles={['ADMIN_CHECK_ON', 'ADMINISTRADOR', 'CLIENTE']}>
+              <ClienteDashboard />
+            </RoleGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/rh"
+        element={
+          <ProtectedRoute>
+            <RoleGate allowedRoles={[...EMPLEADOS_ROLES]}>
+              <RHDashboard />
+            </RoleGate>
           </ProtectedRoute>
         }
       />

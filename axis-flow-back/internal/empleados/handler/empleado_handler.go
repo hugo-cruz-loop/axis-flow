@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -99,6 +101,7 @@ type Handler struct {
 	kpi           KPIStore
 	storage       FileStorage
 	bucket        string
+	RedisClient   *redis.Client
 }
 
 // NewHandler creates an empleados handler bundle.
@@ -470,6 +473,28 @@ func (h *Handler) CreateInasistencia(w http.ResponseWriter, r *http.Request) {
 		writeEmpleadoError(w, err)
 		return
 	}
+
+	if h.RedisClient != nil {
+		payload := map[string]any{
+			"empresa_id":   strconv.FormatInt(empresaID, 10),
+			"empleado_id":  strconv.FormatInt(body.EmpleadoID, 10),
+			"fecha_inicio": body.FechaInicio,
+			"fecha_fin":    body.FechaFin,
+		}
+		values := make(map[string]any, len(payload))
+		for k, v := range payload {
+			values[k] = fmt.Sprintf("%v", v)
+		}
+		err := h.RedisClient.XAdd(r.Context(), &redis.XAddArgs{
+			Stream: "empleados:inasistencia_registrada",
+			ID:     "*",
+			Values: values,
+		}).Err()
+		if err != nil {
+			slog.ErrorContext(r.Context(), "failed to publish InasistenciaRegistrada event", slog.String("error", err.Error()))
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{"data": i})
 }
 

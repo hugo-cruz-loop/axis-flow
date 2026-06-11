@@ -57,6 +57,7 @@ func newEmpleadosModule(dbPool *pgxpool.Pool, redisClient *redis.Client, cfg con
 	storage := &empstorage.LocalStorage{BaseDir: filepath.Join(os.TempDir(), "axis-flow-back", "empleados")}
 	// expedienteRepo satisfies both FotologinStore and KPIStore in addition to ExpedienteStore.
 	handler := empleadoshandler.NewHandler(empleadoSvc, expedienteRepo, asistenciaRepo, inasistenciaRepo, deviceRepo, expedienteRepo, expedienteRepo, storage, cfg.Storage.MinIOBucket)
+	handler.RedisClient = redisClient
 
 	return empleadosRoutesFromHandler(handler), empgateway.NewVerificationGateway()
 }

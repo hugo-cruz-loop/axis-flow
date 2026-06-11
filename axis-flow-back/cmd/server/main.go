@@ -21,6 +21,7 @@ import (
 	"axis-flow-back/internal/logging"
 	"axis-flow-back/internal/middleware"
 	stdrepository "axis-flow-back/internal/repository"
+	"axis-flow-back/internal/dashboardsdata"
 	"axis-flow-back/internal/service"
 	"axis-flow-back/internal/telemetry"
 
@@ -720,6 +721,17 @@ func main() {
 		r.Get("/api/v1/cliente/{id}/evaluaciones", evaluacionH.ListEvaluaciones)
 		r.Post("/api/v1/cliente/{id}/evaluaciones", evaluacionH.CreateEvaluacion)
 	})
+
+	// ── DashboardsData module ──────────────────────────────────────────────────
+	dashboardsCache := dashboardsdata.NewCacheClient(redisClient)
+	dashboardsRepo := dashboardsdata.NewPgxRepository(dbPool)
+	dashboardsService := dashboardsdata.NewService(dashboardsRepo, dashboardsCache)
+	dashboardsHandler := dashboardsdata.NewHTTPHandler(dashboardsCache, dashboardsService)
+	dashboardsdata.RegisterRoutes(r, dashboardsHandler, middleware.JWTAuth(authSvc))
+
+	// Start background event consumer for cache eviction
+	dashboardsConsumer := dashboardsdata.NewEventsConsumer(redisClient, dashboardsCache, dbPool)
+	dashboardsConsumer.Start(ctx)
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	// Wrap router with OTel HTTP instrumentation.
