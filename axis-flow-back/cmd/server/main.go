@@ -31,6 +31,12 @@ import (
 	empresashdl "axis-flow-back/internal/empresas/handler"
 	empresasrepo "axis-flow-back/internal/empresas/repository"
 	empresassvc "axis-flow-back/internal/empresas/service"
+	"axis-flow-back/internal/notificaciones"
+	notifEvents "axis-flow-back/internal/notificaciones/events"
+	notifHandler "axis-flow-back/internal/notificaciones/handler"
+	notifRepo "axis-flow-back/internal/notificaciones/repository"
+	notifSvc "axis-flow-back/internal/notificaciones/service"
+	notifWS "axis-flow-back/internal/notificaciones/ws"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -624,6 +630,19 @@ func main() {
 	// Start the cross-domain event consumer in a background goroutine.
 	// It exits cleanly when the app context is cancelled on shutdown.
 	bolsaModule.Consumer.Start(ctx)
+
+	// ── Notificaciones module ─────────────────────────────────────────────────
+	notifCfg := notificaciones.ConfigFromEnv()
+	pushRepo := notifRepo.NewPgPushRepository(dbPool)
+	alertRepo := notifRepo.NewPgAlertRepository(dbPool)
+	notificationSvc := notifSvc.NewNotificationService(alertRepo, pushRepo)
+	emailSvc := notifSvc.NewEmailService(notifCfg)
+	redisEventPublisher := notifEvents.NewRedisEventPublisher(redisClient)
+	notificationHandler := notifHandler.NewNotificationHandler(notificationSvc, emailSvc, redisEventPublisher)
+	wsHub := notifWS.NewHub(redisClient)
+	wsHandler := notifWS.NewHandler(wsHub, authSvc, notifCfg)
+	go wsHub.Run(ctx)
+	registerNotificacionesRoutes(r, notificationHandler, wsHandler, middleware.JWTAuth(authSvc))
 
 	// ── Clientes module ───────────────────────────────────────────────────────
 	clienteRepo := clientesRepo.NewPgxClienteRepository(dbPool)
