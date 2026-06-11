@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	"axis-flow-back/internal/notificaciones"
+	"axis-flow-back/internal/notificaciones/events"
 	"axis-flow-back/internal/notificaciones/repository"
 
 	"github.com/google/uuid"
@@ -40,17 +43,37 @@ type NotificationService interface {
 // ---------------------------------------------------------------------------
 
 type pgNotificationService struct {
-	alerts repository.AlertRepository
-	pushes repository.PushRepository
+	alerts    repository.AlertRepository
+	pushes    repository.PushRepository
+	publisher events.EventPublisher
 }
 
-// NewNotificationService constructs a NotificationService backed by the given repositories.
-func NewNotificationService(alerts repository.AlertRepository, pushes repository.PushRepository) NotificationService {
-	return &pgNotificationService{alerts: alerts, pushes: pushes}
+// NewNotificationService constructs a NotificationService backed by the given repositories
+// and an EventPublisher for fire-and-forget domain events.
+func NewNotificationService(alerts repository.AlertRepository, pushes repository.PushRepository, publisher events.EventPublisher) NotificationService {
+	return &pgNotificationService{alerts: alerts, pushes: pushes, publisher: publisher}
+}
+
+// publish marshals payload and fires the event. Errors are intentionally ignored
+// (fire-and-forget semantics — the primary operation must not fail if publishing fails).
+func (s *pgNotificationService) publish(ctx context.Context, stream string, payload map[string]any) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	_ = s.publisher.Publish(ctx, stream, data)
 }
 
 func (s *pgNotificationService) CreateAlert(ctx context.Context, n notificaciones.NotificacionAtencion) (notificaciones.NotificacionAtencion, error) {
-	return s.alerts.InsertAlert(ctx, n)
+	result, err := s.alerts.InsertAlert(ctx, n)
+	if err != nil {
+		return notificaciones.NotificacionAtencion{}, err
+	}
+	s.publish(ctx, events.StreamNotificacionEnviada, map[string]any{
+		"notification_id": result.ID,
+		"user_id":         result.UserID,
+	})
+	return result, nil
 }
 
 func (s *pgNotificationService) ListAlertsByUser(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]notificaciones.NotificacionAtencion, int, error) {
@@ -72,11 +95,28 @@ func (s *pgNotificationService) MarkAsRead(ctx context.Context, requesterID, not
 	if alert.UserID != requesterID {
 		return notificaciones.NotificacionAtencion{}, notificaciones.ErrForbidden
 	}
-	return s.alerts.UpdateEstatus(ctx, notifID, int(notificaciones.EstatusRead))
+	updated, err := s.alerts.UpdateEstatus(ctx, notifID, int(notificaciones.EstatusRead))
+	if err != nil {
+		return notificaciones.NotificacionAtencion{}, err
+	}
+	s.publish(ctx, events.StreamNotificacionLeida, map[string]any{
+		"notification_id": updated.ID,
+		"user_id":         updated.UserID,
+		"read_at":         time.Now().UTC(),
+	})
+	return updated, nil
 }
 
 func (s *pgNotificationService) RegisterPush(ctx context.Context, n notificaciones.NotificacionEnviada) (notificaciones.NotificacionEnviada, error) {
-	return s.pushes.InsertPush(ctx, nil, n)
+	result, err := s.pushes.InsertPush(ctx, nil, n)
+	if err != nil {
+		return notificaciones.NotificacionEnviada{}, err
+	}
+	s.publish(ctx, events.StreamDispositivoRegistrado, map[string]any{
+		"user_id":     result.UserID,
+		"device_type": result.DeviceType,
+	})
+	return result, nil
 }
 
 func (s *pgNotificationService) ListPushByUser(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]notificaciones.NotificacionEnviada, int, error) {

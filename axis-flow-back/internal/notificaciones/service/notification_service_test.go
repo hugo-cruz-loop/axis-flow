@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"axis-flow-back/internal/notificaciones"
@@ -12,13 +13,51 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// Mock EventPublisher
+// ---------------------------------------------------------------------------
+
+type mockPublisher struct {
+	mu      sync.Mutex
+	records []publishRecord
+}
+
+type publishRecord struct {
+	stream  string
+	payload []byte
+}
+
+func (m *mockPublisher) Publish(_ context.Context, stream string, payload []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.records = append(m.records, publishRecord{stream: stream, payload: payload})
+	return nil
+}
+
+func (m *mockPublisher) published(stream string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.records {
+		if r.stream == stream {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-func newNotifSvc() service.NotificationService {
+func newNotifSvcWithPublisher() (service.NotificationService, *mockPublisher) {
 	alertRepo := repository.NewInMemAlertRepository()
 	pushRepo := repository.NewInMemPushRepository()
-	return service.NewNotificationService(alertRepo, pushRepo)
+	pub := &mockPublisher{}
+	return service.NewNotificationService(alertRepo, pushRepo, pub), pub
+}
+
+func newNotifSvc() service.NotificationService {
+	svc, _ := newNotifSvcWithPublisher()
+	return svc
 }
 
 // ---------------------------------------------------------------------------
@@ -213,5 +252,65 @@ func TestNotificationService_ListPushByUser_HappyPath(t *testing.T) {
 	}
 	if len(list) != 4 {
 		t.Errorf("len: want 4 got %d", len(list))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// EventPublisher integration
+// ---------------------------------------------------------------------------
+
+func TestNotificationService_CreateAlert_PublishesEvent(t *testing.T) {
+	svc, pub := newNotifSvcWithPublisher()
+	userID := uuid.New()
+
+	_, err := svc.CreateAlert(context.Background(), notificaciones.NotificacionAtencion{
+		UserID:  userID,
+		Mensaje: "event test",
+		Estatus: notificaciones.EstatusUnread,
+	})
+	if err != nil {
+		t.Fatalf("CreateAlert: %v", err)
+	}
+	if !pub.published("notificaciones:notificacion_enviada") {
+		t.Error("CreateAlert: expected StreamNotificacionEnviada to be published")
+	}
+}
+
+func TestNotificationService_MarkAsRead_PublishesEvent(t *testing.T) {
+	svc, pub := newNotifSvcWithPublisher()
+	userID := uuid.New()
+
+	created, err := svc.CreateAlert(context.Background(), notificaciones.NotificacionAtencion{
+		UserID:  userID,
+		Mensaje: "msg",
+		Estatus: notificaciones.EstatusUnread,
+	})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	_, err = svc.MarkAsRead(context.Background(), userID, created.ID)
+	if err != nil {
+		t.Fatalf("MarkAsRead: %v", err)
+	}
+	if !pub.published("notificaciones:notificacion_leida") {
+		t.Error("MarkAsRead: expected StreamNotificacionLeida to be published")
+	}
+}
+
+func TestNotificationService_RegisterPush_PublishesEvent(t *testing.T) {
+	svc, pub := newNotifSvcWithPublisher()
+	userID := uuid.New()
+
+	_, err := svc.RegisterPush(context.Background(), notificaciones.NotificacionEnviada{
+		UserID:     userID,
+		Token:      "fcm-tok",
+		DeviceType: notificaciones.DeviceTypeAndroid,
+	})
+	if err != nil {
+		t.Fatalf("RegisterPush: %v", err)
+	}
+	if !pub.published("notificaciones:dispositivo_registrado") {
+		t.Error("RegisterPush: expected StreamDispositivoRegistrado to be published")
 	}
 }

@@ -39,16 +39,38 @@ func (h *Handler) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	claims, err := h.authSvc.ParseAccessToken(tokenStr)
 	if err != nil {
-		// NEVER log the token value.
+		// Token is present but invalid/expired: upgrade first, then close with
+		// code 4001 so browser clients can distinguish auth failures from
+		// network errors. NEVER log the token value.
 		slog.Info("ws.Handler: token validation failed", "remote_addr", r.RemoteAddr)
-		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+		upgrader := websocket.Upgrader{
+			HandshakeTimeout: h.cfg.WSHandshakeTimeout,
+			CheckOrigin:      func(r *http.Request) bool { return true },
+		}
+		conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+		if upgradeErr != nil {
+			return
+		}
+		_ = conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4001, "unauthorized"))
+		conn.Close()
 		return
 	}
 
 	userID, err := uuid.Parse(claims.UserID)
 	if err != nil {
 		slog.Error("ws.Handler: invalid user_id in token claims", "error", err)
-		http.Error(w, "invalid token claims", http.StatusUnauthorized)
+		upgrader := websocket.Upgrader{
+			HandshakeTimeout: h.cfg.WSHandshakeTimeout,
+			CheckOrigin:      func(r *http.Request) bool { return true },
+		}
+		conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+		if upgradeErr != nil {
+			return
+		}
+		_ = conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4001, "unauthorized"))
+		conn.Close()
 		return
 	}
 

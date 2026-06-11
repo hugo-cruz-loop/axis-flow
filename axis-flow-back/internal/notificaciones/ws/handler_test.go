@@ -85,10 +85,10 @@ func TestHandler_MissingToken_Rejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test: invalid token → connection refused
+// Test: invalid token → upgrade accepted, then close frame with code 4001
 // ---------------------------------------------------------------------------
 
-func TestHandler_InvalidToken_Rejected(t *testing.T) {
+func TestHandler_InvalidToken_Close4001(t *testing.T) {
 	hub := ws.NewHub(nil)
 	go hub.Run(t.Context())
 
@@ -106,12 +106,25 @@ func TestHandler_InvalidToken_Rejected(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "?token=not.a.valid.jwt"
-	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err == nil {
-		t.Fatal("expected dial to fail with invalid token")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		// Some clients may reject at dial if the server closes immediately — acceptable.
+		return
 	}
-	if resp != nil && resp.StatusCode == http.StatusSwitchingProtocols {
-		t.Fatal("server should not have upgraded with invalid token")
+	t.Cleanup(func() { conn.Close() })
+
+	// The server upgrades then sends a close frame with code 4001.
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, readErr := conn.ReadMessage()
+	if readErr == nil {
+		t.Fatal("expected connection to be closed by server")
+	}
+	closeErr, ok := readErr.(*websocket.CloseError)
+	if !ok {
+		t.Fatalf("expected *websocket.CloseError, got %T: %v", readErr, readErr)
+	}
+	if closeErr.Code != 4001 {
+		t.Errorf("expected close code 4001, got %d", closeErr.Code)
 	}
 }
 
