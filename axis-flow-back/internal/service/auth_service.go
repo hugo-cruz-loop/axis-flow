@@ -26,34 +26,78 @@ type TokenPair struct {
 }
 
 // Claims are the JWT payload claims used by this service.
+//
+// EmpleadoID is the PR-5 (cross-cutting blocker 5.0) addition: it
+// carries the linked empleado's num_empleado for endpoints that
+// need an employee identity (the formularios POST /evento_iniciado
+// is the only one today). The field is omitempty so tokens issued
+// by an older issuer (or tokens for users with no linked empleado)
+// parse cleanly with EmpleadoID == 0. The formularios handler's
+// extractEmpleadoID helper rejects 0 with 401; the rest of the
+// system treats 0 the same as missing — the addition is
+// backward-compatible.
 type Claims struct {
-	UserID   string `json:"uid"`
-	TenantID string `json:"tid"`
-	Email    string `json:"email"`
-	Role     string `json:"role,omitempty"`
+	UserID     string `json:"uid"`
+	TenantID   string `json:"tid"`
+	Email      string `json:"email"`
+	Role       string `json:"role,omitempty"`
+	EmpleadoID int64  `json:"empleado_id,omitempty"`
 	jwt.RegisteredClaims
+}
+
+// EmpleadoLookup is the seam AuthService uses to enrich the access
+// token with the linked empleado's num_empleado (PR-5 5.0).
+//
+// Implementations should:
+//
+//   - Return (0, nil) when the user has no linked empleado. The
+//     auth flow is not blocked — non-formularios endpoints work
+//     fine, and the formularios handler explicitly rejects 0 with
+//     401 so the user gets a clear signal that the endpoint
+//     requires the link.
+//   - Return a non-nil error ONLY for genuine lookup failures
+//     (DB down, etc.). A 0 result is NOT an error.
+//
+// The empresaID parameter is accepted for future use (e.g. when
+// the empleados.empleados_empleado table can be scoped to a
+// specific empresa per tenant); the current adapter ignores it
+// and resolves by usuario_id alone.
+type EmpleadoLookup interface {
+	GetEmpleadoIDByUserID(ctx context.Context, userID, empresaID uuid.UUID) (int64, error)
 }
 
 // AuthService handles login, token refresh, and profile retrieval.
 type AuthService struct {
 	users      UserRepository
 	sessions   SessionRepository
+	empleados  EmpleadoLookup
 	jwtSecret  []byte
 	accessTTL  time.Duration
 	refreshTTL time.Duration
 }
 
 // NewAuthService creates an AuthService with the given dependencies.
+//
+// empleados may be nil for callers that don't need the JWT to
+// carry the empleado_id claim (e.g. internal admin tools that
+// never call formularios). The Login/RefreshToken flows then
+// embed EmpleadoID == 0 in the access token — the formularios
+// handler rejects this with 401, but other endpoints are
+// unaffected. PR-5 (cross-cutting blocker 5.0) is the canonical
+// seam: the production main.go wires the EmpleadoRepository
+// adapter.
 func NewAuthService(
 	users UserRepository,
 	sessions SessionRepository,
 	jwtSecret string,
 	accessTTL time.Duration,
 	refreshTTL time.Duration,
+	empleados EmpleadoLookup,
 ) *AuthService {
 	return &AuthService{
 		users:      users,
 		sessions:   sessions,
+		empleados:  empleados,
 		jwtSecret:  []byte(jwtSecret),
 		accessTTL:  accessTTL,
 		refreshTTL: refreshTTL,
@@ -199,13 +243,26 @@ func (s *AuthService) issueTokenPair(
 	// Fail-open: if the lookup errors, the token is issued without a role.
 	roleCode, _ := s.users.FindPrimaryRoleCode(ctx, user.ID)
 
+	// Resolve the linked empleado (PR-5 5.0). A user with no linked
+	// empleado is still issued a valid token — EmpleadoID=0 is the
+	// "no link" signal. The formularios extractEmpleadoID helper
+	// rejects 0 with 401; the rest of the system treats 0 the same
+	// as missing. Fail-open on lookup errors too — a DB hiccup at
+	// login time must not block sign-in, the formularios flow will
+	// see 0 and fail loudly with a clear 401.
+	var empleadoID int64
+	if s.empleados != nil {
+		empleadoID, _ = s.empleados.GetEmpleadoIDByUserID(ctx, user.ID, user.TenantID)
+	}
+
 	// Access token (JWT)
 	now := time.Now()
 	claims := &Claims{
-		UserID:   user.ID.String(),
-		TenantID: user.TenantID.String(),
-		Email:    user.Email,
-		Role:     roleCode,
+		UserID:     user.ID.String(),
+		TenantID:   user.TenantID.String(),
+		Email:      user.Email,
+		Role:       roleCode,
+		EmpleadoID: empleadoID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),

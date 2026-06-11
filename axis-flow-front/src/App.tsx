@@ -32,6 +32,9 @@ import { EmployeePage } from '@/features/atencion/pages/EmployeePage'
 import { HRPage } from '@/features/atencion/pages/HRPage'
 import { ClientPage } from '@/features/atencion/pages/ClientPage'
 import { SupervisorPage } from '@/features/atencion/pages/SupervisorPage'
+import { FormBuilderPage } from '@/features/formularios/pages/FormBuilderPage'
+import { FormAssignmentPage } from '@/features/formularios/pages/FormAssignmentPage'
+import { MobileFormCapturePage } from '@/features/formularios/pages/MobileFormCapturePage'
 
 // Role codes as stored in identity_roles.code and embedded in the JWT.
 const ADMIN_ROLES = ['ADMIN_CHECK_ON', 'ADMINISTRADOR'] as const
@@ -264,6 +267,36 @@ function App() {
         element={
           <ProtectedRoute>
             <SupervisorPage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Formularios routes (admin + mobile capture) */}
+      <Route
+        path="/dashboard/formularios/builder"
+        element={
+          <ProtectedRoute>
+            <RoleGate allowedRoles={[...ADMIN_ROLES]}>
+              <FormBuilderPage />
+            </RoleGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/formularios/assignment"
+        element={
+          <ProtectedRoute>
+            <RoleGate allowedRoles={[...ADMIN_ROLES]}>
+              <FormAssignmentPage />
+            </RoleGate>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/mobile/formularios/capture/:eventoId"
+        element={
+          <ProtectedRoute>
+            <MobileFormCapturePage />
           </ProtectedRoute>
         }
       />

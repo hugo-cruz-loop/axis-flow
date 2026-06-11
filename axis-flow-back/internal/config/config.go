@@ -31,6 +31,8 @@ type Config struct {
 	Asignacion AsignacionConfig
 	// PDF holds configuration for the PDF generation service (Gotenberg).
 	PDF PDFConfig
+	// Formularios holds configuration for the Formularios microservice.
+	Formularios FormulariosConfig
 }
 
 // ServerConfig contains HTTP server settings.
@@ -388,6 +390,11 @@ func Load() (*Config, error) {
 			cfg.EncryptionKey = encKeyHex
 		}
 	}
+
+	// Formularios microservice config (PR-1 of 10_Formularios_Service_Spec).
+	// Loaded after global validation so a missing FORMULARIOS_AWS_* key
+	// never masks a missing global required var.
+	cfg.Formularios = loadFormulariosConfig()
 
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("configuration errors: %v", errs)

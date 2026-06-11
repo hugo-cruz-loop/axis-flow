@@ -1,4 +1,9 @@
 // Package gotenberg provides a client for the Gotenberg PDF generation service.
+//
+// This package is intentionally domain-agnostic: it was originally
+// introduced by the cursos module (06_Cursos_Service_Spec) and is
+// reused by formularios (10_Formularios_Service_Spec). It lives at
+// internal/pdf/gotenberg so neither module owns it.
 package gotenberg
 
 import (

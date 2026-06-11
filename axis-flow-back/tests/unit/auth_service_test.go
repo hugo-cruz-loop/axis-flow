@@ -9,9 +9,11 @@ import (
 	"axis-flow-back/internal/domain"
 	"axis-flow-back/internal/service"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -78,7 +80,14 @@ func (m *mockSessionRepo) Revoke(ctx context.Context, id uuid.UUID) error {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 func newTestAuthService(u *mockUserRepo, s *mockSessionRepo) *service.AuthService {
-	return service.NewAuthService(u, s, "test-secret-key-32-bytes-longXXX", 15*time.Minute, 7*24*time.Hour)
+	return service.NewAuthService(u, s, "test-secret-key-32-bytes-longXXX", 15*time.Minute, 7*24*time.Hour, nil)
+}
+
+// newTestAuthServiceWithLookup is the PR-5 (5.0) variant: the test
+// passes a mock EmpleadoLookup so the login flow's enrichment can be
+// asserted.
+func newTestAuthServiceWithLookup(u *mockUserRepo, s *mockSessionRepo, e service.EmpleadoLookup) *service.AuthService {
+	return service.NewAuthService(u, s, "test-secret-key-32-bytes-longXXX", 15*time.Minute, 7*24*time.Hour, e)
 }
 
 func hashPassword(t *testing.T, pw string) string {
@@ -199,4 +208,173 @@ func TestRefreshToken_WithRevokedToken_ReturnsUnauthorized(t *testing.T) {
 
 	assert.ErrorIs(t, err, service.ErrUnauthorized)
 	_ = errors.Is(err, service.ErrUnauthorized) // satisfy linter
+}
+
+// ---------------------------------------------------------------------------
+// PR-5 (5.0) — EmpleadoID claim enrichment in the access token.
+// ---------------------------------------------------------------------------
+
+// mockEmpleadoLookup satisfies service.EmpleadoLookup with a
+// configurable id and a recording call slice.
+type mockEmpleadoLookup struct {
+	mock.Mock
+}
+
+func (m *mockEmpleadoLookup) GetEmpleadoIDByUserID(ctx context.Context, userID, empresaID uuid.UUID) (int64, error) {
+	args := m.Called(ctx, userID, empresaID)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+// TestLogin_EnrichesAccessTokenWithEmpleadoID asserts that a successful
+// login calls the EmpleadoLookup seam and the resulting access token's
+// EmpleadoID claim equals the lookup's return value.
+func TestLogin_EnrichesAccessTokenWithEmpleadoID(t *testing.T) {
+	userRepo := &mockUserRepo{}
+	sessRepo := &mockSessionRepo{}
+	lookup := &mockEmpleadoLookup{}
+	svc := newTestAuthServiceWithLookup(userRepo, sessRepo, lookup)
+
+	u := activeUser(t)
+	userRepo.On("FindByEmail", mock.Anything, u.Email).Return(u, nil)
+	userRepo.On("UpdateLastLogin", mock.Anything, u.ID, mock.Anything).Return(nil)
+	userRepo.On("ResetFailedAttempts", mock.Anything, u.ID).Return(nil)
+	sessRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Session")).Return(nil)
+	lookup.On("GetEmpleadoIDByUserID", mock.Anything, u.ID, u.TenantID).Return(int64(42), nil)
+
+	pair, err := svc.Login(context.Background(), u.Email, "correct-password", "WEB", "", "127.0.0.1")
+	require.NoError(t, err)
+
+	// Parse the access token and assert the EmpleadoID claim is 42.
+	claims := &service.Claims{}
+	parsed, err := jwt.ParseWithClaims(pair.AccessToken, claims, func(_ *jwt.Token) (any, error) {
+		return []byte("test-secret-key-32-bytes-longXXX"), nil
+	})
+	require.NoError(t, err)
+	require.True(t, parsed.Valid)
+	assert.Equal(t, int64(42), claims.EmpleadoID, "EmpleadoID must be enriched from the lookup")
+	lookup.AssertExpectations(t)
+}
+
+// TestLogin_NoLinkedEmpleado_IssuesTokenWithZeroEmpleadoID asserts the
+// "no linked empleado" path: lookup returns 0, the token is still
+// issued successfully with EmpleadoID=0. Non-formularios endpoints
+// continue to work; the formularios POST /evento_iniciado will see
+// 0 and return 401 (extracted handler invariant — tested in PR-4 AMEND).
+func TestLogin_NoLinkedEmpleado_IssuesTokenWithZeroEmpleadoID(t *testing.T) {
+	userRepo := &mockUserRepo{}
+	sessRepo := &mockSessionRepo{}
+	lookup := &mockEmpleadoLookup{}
+	svc := newTestAuthServiceWithLookup(userRepo, sessRepo, lookup)
+
+	u := activeUser(t)
+	userRepo.On("FindByEmail", mock.Anything, u.Email).Return(u, nil)
+	userRepo.On("UpdateLastLogin", mock.Anything, u.ID, mock.Anything).Return(nil)
+	userRepo.On("ResetFailedAttempts", mock.Anything, u.ID).Return(nil)
+	sessRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Session")).Return(nil)
+	lookup.On("GetEmpleadoIDByUserID", mock.Anything, u.ID, u.TenantID).Return(int64(0), nil)
+
+	pair, err := svc.Login(context.Background(), u.Email, "correct-password", "WEB", "", "127.0.0.1")
+	require.NoError(t, err, "login must succeed even with no linked empleado")
+
+	claims := &service.Claims{}
+	parsed, err := jwt.ParseWithClaims(pair.AccessToken, claims, func(_ *jwt.Token) (any, error) {
+		return []byte("test-secret-key-32-bytes-longXXX"), nil
+	})
+	require.NoError(t, err)
+	require.True(t, parsed.Valid)
+	assert.Equal(t, int64(0), claims.EmpleadoID, "EmpleadoID must be 0 when no empleado is linked")
+}
+
+// TestLogin_EmpleadoLookupError_StillIssuesToken asserts the
+// fail-open contract: a DB error from the lookup does NOT block
+// login. The token is issued with EmpleadoID=0 and the user can
+// re-authenticate. The formularios endpoint will see 0 and return
+// 401 — a clear signal that the user-employee link is broken.
+func TestLogin_EmpleadoLookupError_StillIssuesToken(t *testing.T) {
+	userRepo := &mockUserRepo{}
+	sessRepo := &mockSessionRepo{}
+	lookup := &mockEmpleadoLookup{}
+	svc := newTestAuthServiceWithLookup(userRepo, sessRepo, lookup)
+
+	u := activeUser(t)
+	userRepo.On("FindByEmail", mock.Anything, u.Email).Return(u, nil)
+	userRepo.On("UpdateLastLogin", mock.Anything, u.ID, mock.Anything).Return(nil)
+	userRepo.On("ResetFailedAttempts", mock.Anything, u.ID).Return(nil)
+	sessRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Session")).Return(nil)
+	lookup.On("GetEmpleadoIDByUserID", mock.Anything, u.ID, u.TenantID).Return(int64(0), assert.AnError)
+
+	pair, err := svc.Login(context.Background(), u.Email, "correct-password", "WEB", "", "127.0.0.1")
+	require.NoError(t, err, "login must succeed even when empleado lookup errors (fail-open)")
+
+	claims := &service.Claims{}
+	parsed, err := jwt.ParseWithClaims(pair.AccessToken, claims, func(_ *jwt.Token) (any, error) {
+		return []byte("test-secret-key-32-bytes-longXXX"), nil
+	})
+	require.NoError(t, err)
+	require.True(t, parsed.Valid)
+	assert.Equal(t, int64(0), claims.EmpleadoID, "lookup errors degrade to EmpleadoID=0")
+}
+
+// TestLogin_NilEmpleadoLookup_DoesNotPanic asserts that the nil
+// EmpleadoLookup seam (used by the legacy 5-arg NewAuthService call
+// sites that don't need the claim) does not crash the login flow.
+func TestLogin_NilEmpleadoLookup_DoesNotPanic(t *testing.T) {
+	userRepo := &mockUserRepo{}
+	sessRepo := &mockSessionRepo{}
+	svc := newTestAuthService(userRepo, sessRepo) // nil lookup
+
+	u := activeUser(t)
+	userRepo.On("FindByEmail", mock.Anything, u.Email).Return(u, nil)
+	userRepo.On("UpdateLastLogin", mock.Anything, u.ID, mock.Anything).Return(nil)
+	userRepo.On("ResetFailedAttempts", mock.Anything, u.ID).Return(nil)
+	sessRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Session")).Return(nil)
+
+	pair, err := svc.Login(context.Background(), u.Email, "correct-password", "WEB", "", "127.0.0.1")
+	require.NoError(t, err)
+
+	claims := &service.Claims{}
+	parsed, err := jwt.ParseWithClaims(pair.AccessToken, claims, func(_ *jwt.Token) (any, error) {
+		return []byte("test-secret-key-32-bytes-longXXX"), nil
+	})
+	require.NoError(t, err)
+	require.True(t, parsed.Valid)
+	assert.Equal(t, int64(0), claims.EmpleadoID, "nil lookup → EmpleadoID=0")
+}
+
+// TestRefreshToken_EnrichesAccessTokenWithEmpleadoID asserts that the
+// refresh path re-issues an access token with the same EmpleadoID
+// enrichment. The brief explicitly requires this.
+func TestRefreshToken_EnrichesAccessTokenWithEmpleadoID(t *testing.T) {
+	userRepo := &mockUserRepo{}
+	sessRepo := &mockSessionRepo{}
+	lookup := &mockEmpleadoLookup{}
+	svc := newTestAuthServiceWithLookup(userRepo, sessRepo, lookup)
+
+	u := activeUser(t)
+	sessionID := uuid.New()
+	sess := &domain.Session{
+		ID:               sessionID,
+		UserID:           u.ID,
+		RefreshTokenHash: "placeholder",
+		DeviceType:       domain.DeviceWeb,
+		ExpiresAt:        time.Now().Add(7 * 24 * time.Hour),
+	}
+
+	sessRepo.On("FindByRefreshTokenHash", mock.Anything, mock.AnythingOfType("string")).Return(sess, nil)
+	userRepo.On("FindByID", mock.Anything, u.ID).Return(u, nil)
+	sessRepo.On("Revoke", mock.Anything, sessionID).Return(nil)
+	sessRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Session")).Return(nil)
+	lookup.On("GetEmpleadoIDByUserID", mock.Anything, u.ID, u.TenantID).Return(int64(99), nil)
+
+	pair, err := svc.RefreshToken(context.Background(), "some-raw-refresh-token")
+	require.NoError(t, err)
+
+	claims := &service.Claims{}
+	parsed, err := jwt.ParseWithClaims(pair.AccessToken, claims, func(_ *jwt.Token) (any, error) {
+		return []byte("test-secret-key-32-bytes-longXXX"), nil
+	})
+	require.NoError(t, err)
+	require.True(t, parsed.Valid)
+	assert.Equal(t, int64(99), claims.EmpleadoID, "refresh path must re-issue with enriched EmpleadoID")
+	lookup.AssertExpectations(t)
 }

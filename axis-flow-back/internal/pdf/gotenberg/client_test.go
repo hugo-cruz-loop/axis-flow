@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"axis-flow-back/internal/cursos/gotenberg"
+	"axis-flow-back/internal/pdf/gotenberg"
 )
 
 func TestMockGotenbergClientReturnsBytes(t *testing.T) {

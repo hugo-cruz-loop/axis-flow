@@ -16,6 +16,7 @@ import (
 	asignacionStorage "axis-flow-back/internal/asignacion/storage"
 	"axis-flow-back/internal/catalogos/repository"
 	"axis-flow-back/internal/config"
+	empleadosRepo "axis-flow-back/internal/empleados/repository"
 	"axis-flow-back/internal/handler"
 	"axis-flow-back/internal/logging"
 	"axis-flow-back/internal/middleware"
@@ -35,12 +36,32 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
+
+// empleadoRepoLookupAdapter wraps *empleadosRepo.EmpleadoRepository
+// to satisfy service.EmpleadoLookup. The auth service uses this
+// adapter to enrich the access token's empleado_id claim with the
+// linked empleado's num_empleado (PR-5 5.0). The empresaID UUID
+// parameter from the auth service is intentionally ignored — the
+// production adapter resolves by usuario_id alone (a user is
+// expected to be linked to at most one empleado; see the
+// EmpleadoRepository.GetNumEmpleadoByUserID doc for the rationale).
+type empleadoRepoLookupAdapter struct {
+	repo *empleadosRepo.EmpleadoRepository
+}
+
+// GetEmpleadoIDByUserID delegates to the underlying repository.
+// Returns (0, nil) when no empleado is linked (NOT an error — see
+// service.EmpleadoLookup docs).
+func (a *empleadoRepoLookupAdapter) GetEmpleadoIDByUserID(ctx context.Context, _ /* empresaID */ uuid.UUID, userID uuid.UUID) (int64, error) {
+	return a.repo.GetNumEmpleadoByUserID(ctx, userID)
+}
 
 // validateConfig checks invariants that must hold before the server starts.
 func validateConfig(cfg config.Config) error {
@@ -123,6 +144,13 @@ func main() {
 	tokenRepo := stdrepository.NewPgxTokenRepository(dbPool)
 	auditRepo := stdrepository.NewPgxAuditRepository(dbPool)
 
+	// PR-5 5.0: empleado repository for the JWT empleado_id claim
+	// enrichment. The auth service uses the lookup adapter to
+	// resolve the linked empleado's num_empleado at login +
+	// refresh time.
+	empleadoRepoForLookup := empleadosRepo.NewPgxEmpleadoRepository(dbPool)
+	empleadoLookup := &empleadoRepoLookupAdapter{repo: empleadoRepoForLookup}
+
 	// ── Services ──────────────────────────────────────────────────────────────
 	authSvc := service.NewAuthService(
 		userRepo,
@@ -130,6 +158,7 @@ func main() {
 		cfg.JWT.Secret,
 		cfg.JWT.AccessTTL,
 		cfg.JWT.RefreshTTL,
+		empleadoLookup, // PR-5 5.0 — empleado_id claim enrichment seam
 	)
 	tokenSvc := service.NewTokenService(tokenRepo)
 	activationSvc := service.NewActivationService(*tokenSvc, userRepo)
@@ -573,6 +602,21 @@ func main() {
 	// Both exit cleanly when the app context is cancelled on shutdown.
 	atencionModule.EmpleadoDeBajaConsumer.Start(ctx)
 	atencionModule.ClienteInactivoConsumer.Start(ctx)
+
+	// ── Formularios module (PR-5 5.4) ────────────────────────────────────────
+	// The module owns its own repos, services, handlers, telemetry,
+	// and the cross-domain EventoCancelado consumer. The PDF /
+	// S3 / Locker ports are no-op stubs in PR-5 (TODO(PR-6) at
+	// every site); the production implementations land in PR-6
+	// (PDF/S3 Hardening).
+	formulariosModule := newFormulariosModule(dbPool, redisClient, cfg, metricsRegistry)
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.JWTAuth(authSvc))
+		registerFormulariosRoutesWithAuth(r, middleware.JWTAuth(authSvc), formulariosModule.FormH(), formulariosModule.EvH(), formulariosModule.RespH())
+	})
+	// Start the cross-domain event consumer in a background goroutine.
+	// Exits cleanly when the app context is cancelled on shutdown.
+	formulariosModule.EventoCanceladoConsumer.Start(ctx)
 
 	// ── BolsaTrabajo module ───────────────────────────────────────────────────
 	bolsaModule := newBolsaTrabajoModule(dbPool, redisClient, cfg)
