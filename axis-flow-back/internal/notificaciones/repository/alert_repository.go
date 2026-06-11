@@ -22,6 +22,8 @@ import (
 type AlertRepository interface {
 	// InsertAlert records a new notification and returns the persisted row.
 	InsertAlert(ctx context.Context, n notificaciones.NotificacionAtencion) (notificaciones.NotificacionAtencion, error)
+	// GetByID returns a single notification by its ID. Returns ErrNotFound when absent.
+	GetByID(ctx context.Context, id uuid.UUID) (notificaciones.NotificacionAtencion, error)
 	// UpdateEstatus changes the read status of a notification by ID.
 	UpdateEstatus(ctx context.Context, id uuid.UUID, estatus int) (notificaciones.NotificacionAtencion, error)
 	// CountUnread returns the number of unread notifications for a user.
@@ -57,6 +59,26 @@ func (r *pgAlertRepository) InsertAlert(ctx context.Context, n notificaciones.No
 		Scan(&out.ID, &out.UserID, &out.TicketID, &out.QuejaID, &out.Mensaje, &out.Estatus, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		return notificaciones.NotificacionAtencion{}, fmt.Errorf("alert_repository.InsertAlert: %w", err)
+	}
+	return out, nil
+}
+
+// GetByID returns a single notification by its primary key.
+// Returns ErrNotFound when the record does not exist.
+func (r *pgAlertRepository) GetByID(ctx context.Context, id uuid.UUID) (notificaciones.NotificacionAtencion, error) {
+	const q = `
+		SELECT id, user_id, ticket_id, queja_id, mensaje, estatus, created_at, updated_at
+		FROM notificaciones.notificacionatencionserviciocliente
+		WHERE id = $1`
+
+	var out notificaciones.NotificacionAtencion
+	err := r.db.QueryRow(ctx, q, id).
+		Scan(&out.ID, &out.UserID, &out.TicketID, &out.QuejaID, &out.Mensaje, &out.Estatus, &out.CreatedAt, &out.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return notificaciones.NotificacionAtencion{}, notificaciones.ErrNotFound
+		}
+		return notificaciones.NotificacionAtencion{}, fmt.Errorf("alert_repository.GetByID: %w", err)
 	}
 	return out, nil
 }
@@ -163,6 +185,17 @@ func (r *InMemAlertRepository) InsertAlert(_ context.Context, n notificaciones.N
 	}
 	n.UpdatedAt = now
 	r.records[n.ID] = n
+	return n, nil
+}
+
+// GetByID returns a single notification by ID or ErrNotFound.
+func (r *InMemAlertRepository) GetByID(_ context.Context, id uuid.UUID) (notificaciones.NotificacionAtencion, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	n, ok := r.records[id]
+	if !ok {
+		return notificaciones.NotificacionAtencion{}, notificaciones.ErrNotFound
+	}
 	return n, nil
 }
 
