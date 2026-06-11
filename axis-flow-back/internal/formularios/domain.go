@@ -226,4 +226,11 @@ var (
 	ErrForbidden    = errors.New("formularios: forbidden")
 	ErrConflict     = errors.New("formularios: conflict")
 	ErrInvalidInput = errors.New("formularios: invalid input")
+	// ErrInternal is the surfaced error class for any unexpected
+	// infrastructure failure (AWS S3 error, Gotenberg HTTP error,
+	// Redis timeout, etc.). PR-6 (6.2): the S3 transport wraps
+	// every AWS error as ErrInternal with a generic message; the
+	// underlying vendor detail is logged via slog at the service
+	// layer (no PII / no bucket / no key in the surfaced error).
+	ErrInternal = errors.New("formularios: internal")
 )
