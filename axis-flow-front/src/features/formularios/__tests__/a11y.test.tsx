@@ -7,6 +7,7 @@ import { FormBuilderPage } from '../pages/FormBuilderPage'
 import { FormAssignmentPage } from '../pages/FormAssignmentPage'
 import { MobileFormCapturePage } from '../pages/MobileFormCapturePage'
 import { TIPO_PREGUNTA, type PreguntaDraft } from '../types'
+import { useAuthStore } from '@/store/authStore'
 
 // — Mocks —
 
@@ -33,6 +34,21 @@ vi.mock('../api/queries', () => ({
 const UUID = '8c2a7d0e-5412-4c22-b5e1-88f6c5bbde93'
 const EVENTO_ID = '99999999-aaaa-bbbb-cccc-dddddddddddd'
 
+// Build a base64url-encoded JWT-shaped token for the a11y tests so the
+// page's useJWTClaims hook returns a valid tenantId and the page renders
+// the formularios content (not the "Sesión inválida" error state).
+function makeToken(payload: object): string {
+  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+  const body = btoa(JSON.stringify(payload))
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+  return `${header}.${body}.signature`
+}
+
 // Canvas + URL stubs (jsdom)
 beforeAll(() => {
   if (!('createObjectURL' in URL)) {
@@ -58,6 +74,23 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // PR-7 AMEND (FIX 2): seed the auth store with a valid JWT so the
+  // MobileFormCapturePage renders the formularios content (not the
+  // "Sesión inválida" error state) — the a11y tests assert on the
+  // rendered form controls, which require a logged-in session.
+  useAuthStore.setState({
+    accessToken: makeToken({
+      uid: 'user-uuid-1',
+      tid: UUID,
+      empleado_id: 42,
+      email: 'alice@example.com',
+      role: 'EMPLEADO',
+      exp: 1_900_000_000,
+      iat: 1_800_000_000,
+    }),
+    user: null,
+    isAuthenticated: true,
+  })
   mocks.useFormularios.mockReturnValue({ data: undefined, isLoading: false })
   mocks.useEventosByEmpCte.mockReturnValue({ data: { success: true, data: [] }, isLoading: false })
   mocks.useCreateFormulario.mockReturnValue({ mutate: vi.fn(), isPending: false })

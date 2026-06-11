@@ -5,6 +5,7 @@ import { TIPO_PREGUNTA, type PreguntaDraft } from '../types'
 import { MatrixField } from '../components/presentational/MatrixField'
 import { SignatureCanvas } from '../components/presentational/SignatureCanvas'
 import { CameraCapture } from '../components/presentational/CameraCapture'
+import { useJWTClaims } from '@/hooks/useJWTClaims'
 
 interface GeolocationState {
   lat: number
@@ -37,20 +38,21 @@ export function MobileFormCapturePage() {
   const [geoError, setGeoError] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
 
-  // The formularios list is fetched for the current empresa. In a real
-  // production flow the eventoId would drive a `useFormularioByEvento`
-  // lookup. For PR-7 we render the preguntas from the first form in the
-  // list as a stand-in; the next PR will add a dedicated
-  // `GET /formulario/{id}/preguntas` hook so this page renders the right
-  // form for the right evento.
+  // PR-7 AMEND (FIX 2): the formularios list is now scoped to the JWT's
+  // tenant id (empresa_id). The hook always runs (never conditional) so
+  // React's rules-of-hooks stay satisfied; when claims are missing or
+  // invalid, `tenantId` is the empty string and `useFormularios` stays
+  // disabled via its own `enabled: !!empresaId` guard. The "Sesión
+  // inválida" error state below is what the user sees in that case.
   //
-  // The empresaId is not yet wired from the JWT in this view (TODO: read
-  // from the auth store like the atencion pages do). Until then we pass
-  // an empty string so the hook is disabled — the page renders a loading
-  // state and the operator is prompted to open the form from the
-  // assignment page directly.
-  const empresaId = ''
-  const { data: formularios, isLoading: loadingForms } = useFormularios(empresaId)
+  // In a real production flow the eventoId would drive a
+  // `useFormularioByEvento` lookup. For PR-7 we render the preguntas from
+  // the first form in the list as a stand-in; the next PR will add a
+  // dedicated `GET /formulario/{id}/preguntas` hook so this page renders
+  // the right form for the right evento.
+  const claims = useJWTClaims()
+  const tenantId = claims?.tenantId ?? ''
+  const { data: formularios, isLoading: loadingForms } = useFormularios(tenantId)
   const activeForm = formularios?.data?.[0]
   const preguntas: PreguntaDraft[] =
     (activeForm as unknown as { preguntas?: PreguntaDraft[] } | undefined)?.preguntas ?? []
@@ -86,16 +88,40 @@ export function MobileFormCapturePage() {
   // iniciarEvento on mount (idempotent: server de-dupes by evento_id + empleado_id).
   useEffect(() => {
     if (!eventoId) return
-    // empleado_id comes from the JWT in the real app. For PR-7 we use 0 as
-    // a placeholder; the backend will reject if empleado_id is invalid.
+    // If the JWT is missing or malformed we MUST NOT fire iniciarEvento —
+    // the POST would 401 server-side. The `claims === null` early return
+    // below renders the "Sesión inválida" error state in that case.
+    if (claims === null) return
+    // PR-7 AMEND (FIX 2): empleado_id now comes from the JWT (PR-5) via
+    // `useJWTClaims`, NOT a hardcoded 0. The openapi contract for
+    // POST /evento_iniciado still requires `empleado_id` in the body
+    // (it is listed under `required`), and the backend ignores the body
+    // value in favor of the JWT context (PR-4 AMEND FIX 5 anti-spoof).
+    // We still send the JWT-derived value so the request shape matches
+    // the openapi example.
     iniciar.mutate({
       evento_id: eventoId,
-      empleado_id: 0,
+      empleado_id: claims.empleadoId,
       geolocalizacion_inicio: geo ? { latitud: geo.lat, longitud: geo.lng } : undefined,
     })
     // We intentionally re-fire when geo becomes available so the geo is
     // included in the iniciar call.
-  }, [eventoId, geo, iniciar])
+  }, [eventoId, geo, iniciar, claims])
+
+  // — All hooks above; early returns below —
+
+  // If the JWT is missing or malformed, the formularios query stays
+  // disabled and the iniciarEvento POST would 401 anyway. Surface a clear
+  // error state instead of letting the page silently render a "Loading…"
+  // spinner forever.
+  if (claims === null) {
+    return (
+      <div className="p-8 text-center" role="alert">
+        <p className="text-slate-900 font-bold text-base">Sesión inválida</p>
+        <p className="text-slate-500 text-sm mt-2">Por favor inicia sesión.</p>
+      </div>
+    )
+  }
 
   if (loadingForms || !activeForm) {
     return (
