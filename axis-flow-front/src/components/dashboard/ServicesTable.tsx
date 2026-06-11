@@ -1,6 +1,6 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { ServicesLocalidadItem } from '../../schemas/dashboard-schemas';
+import type { ServicesLocalidadItem } from '../../schemas/dashboard-schemas';
 
 interface ServicesTableProps {
   items: ServicesLocalidadItem[];

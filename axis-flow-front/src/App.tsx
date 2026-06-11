@@ -9,7 +9,6 @@ import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { AnalyticsPage } from '@/pages/dashboard/AnalyticsPage'
 import { RolesPage } from '@/pages/dashboard/RolesPage'
 import { PermissionsPage } from '@/pages/dashboard/PermissionsPage'
-import { SettingsPage } from '@/pages/dashboard/SettingsPage'
 import { HelpPage } from '@/pages/dashboard/HelpPage'
 import { UsersPage } from '@/pages/dashboard/users/UsersPage'
 import { DashboardCreateUserPage } from '@/pages/dashboard/users/CreateUserPage'
@@ -38,6 +37,7 @@ import { MobileFormCapturePage } from '@/features/formularios/pages/MobileFormCa
 import { AdminEmpresaDashboard } from '@/screens/AdminEmpresaDashboard'
 import { ClienteDashboard } from '@/screens/ClienteDashboard'
 import { RHDashboard } from '@/screens/RHDashboard'
+import { AdminSettingsPage } from '@/features/parametrizacion'
 
 
 // Role codes as stored in identity_roles.code and embedded in the JWT.
@@ -153,12 +153,18 @@ function App() {
         }
       />
       <Route
-        path="/dashboard/settings"
+        path="/admin/settings"
         element={
           <ProtectedRoute>
-            <SettingsPage />
+            <RoleGate allowedRoles={[...ADMIN_ROLES]}>
+              <AdminSettingsPage />
+            </RoleGate>
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/dashboard/settings"
+        element={<Navigate to="/admin/settings" replace />}
       />
       <Route
         path="/dashboard/help"

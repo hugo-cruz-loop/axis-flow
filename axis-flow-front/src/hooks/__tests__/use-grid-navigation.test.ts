@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { render, fireEvent, screen } from '@testing-library/react'
 import * as React from 'react'
 import { useGridNavigation } from '../use-grid-navigation'

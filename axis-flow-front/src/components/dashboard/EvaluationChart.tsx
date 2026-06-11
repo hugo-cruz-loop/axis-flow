@@ -1,6 +1,6 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { ClientEvaluationItem } from '../../schemas/dashboard-schemas';
+import type { ClientEvaluationItem } from '../../schemas/dashboard-schemas';
 
 interface EvaluationChartProps {
   data: ClientEvaluationItem[];
@@ -24,7 +24,7 @@ export const EvaluationChart: React.FC<EvaluationChartProps> = ({ data }) => {
             {data.map((item) => (
               <tr key={item.cliente_id}>
                 <td>{item.cliente_nombre}</td>
-                <td>{item.promedio_evaluacion} out of 10</td>
+                <td>{item.promedio_puntuacion} out of 10</td>
                 <td>{item.total_evaluaciones} reviews</td>
               </tr>
             ))}
@@ -44,7 +44,7 @@ export const EvaluationChart: React.FC<EvaluationChartProps> = ({ data }) => {
               <XAxis dataKey="cliente_nombre" tick={{ fontSize: 10 }} />
               <YAxis domain={[0, 10]} tick={{ fontSize: 10 }} />
               <Tooltip />
-              <Bar dataKey="promedio_evaluacion" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="promedio_puntuacion" fill="#4f46e5" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}

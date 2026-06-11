@@ -2,7 +2,6 @@ package dashboardsdata
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,13 +65,13 @@ func (r *PgxRepository) GetEvaluacionesClientes(ctx context.Context, companyID i
 		LEFT JOIN asignacion.asignacion_asignacion a ON a.empresa_id = c.id
 		LEFT JOIN asignacion.asignacion_evaluacionempleado e ON e.asignacion_id = a.id
 		WHERE c.empresa_id = $1`
-	
+
 	args := []any{companyID}
 	if clientIDFilter != nil {
 		query += " AND c.id = $2"
 		args = append(args, *clientIDFilter)
 	}
-	
+
 	query += " GROUP BY c.id, c.nombre_comercial ORDER BY c.nombre_comercial"
 
 	rows, err := r.db.Query(ctx, query, args...)
@@ -121,7 +120,7 @@ func (r *PgxRepository) GetAusenciasCount(ctx context.Context, companyID int64, 
 		FROM empleados.empleados_inasistencia i
 		JOIN empleados.empleados_empleado e ON i.empleado_id = e.num_empleado
 		WHERE e.empresa_id = $1`
-	
+
 	args := []any{companyID}
 	if year != nil {
 		query += " AND EXTRACT(YEAR FROM i.fecha_inicio) = $2"
@@ -162,11 +161,11 @@ func (r *PgxRepository) GetServiciosLocalidad(ctx context.Context, clientID uuid
 
 	for rows.Next() {
 		var (
-			locID       uuid.UUID
-			locNombre   string
-			servID      int64
-			servNombre  string
-			empAsig     int
+			locID      uuid.UUID
+			locNombre  string
+			servID     int64
+			servNombre string
+			empAsig    int
 		)
 		if err := rows.Scan(&locID, &locNombre, &servID, &servNombre, &empAsig); err != nil {
 			return nil, err

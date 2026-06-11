@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/store/authStore'
-import { useJobsByEmpresa, useCreateTrabajo } from '../../api/queries'
+import { useJobsByEmpresa } from '../../api/queries'
 import { JobCard } from '../presentational/JobCard'
 import { JobCardSkeleton } from '../presentational/Skeletons'
 import { useNavigate } from 'react-router-dom'
@@ -10,7 +10,6 @@ export function RecruiterDashboard() {
   const navigate = useNavigate()
 
   const { data, isLoading, isError } = useJobsByEmpresa(empresaId)
-  const { mutate: createJob, isPending } = useCreateTrabajo()
 
   const handleCreateJob = () => {
     // In a real implementation this would open a form/modal.
@@ -25,7 +24,6 @@ export function RecruiterDashboard() {
         <button
           type="button"
           onClick={handleCreateJob}
-          disabled={isPending}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           + New job

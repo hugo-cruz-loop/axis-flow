@@ -104,7 +104,7 @@ export function useCreateTrabajo() {
 export function useSwitchEstatus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, empresaId }: { id: string; empresaId: string }) =>
+    mutationFn: ({ id }: { id: string; empresaId: string }) =>
       recruitmentClient
         .patch<Trabajo>(`/trabajo/switch/${id}`)
         .then((r) => r.data),

@@ -151,13 +151,13 @@ describe('EvaluationChart Fallbacks and Tech Hiding', () => {
     {
       cliente_id: 'c1-uuid',
       cliente_nombre: 'Acme Corp',
-      promedio_evaluacion: 8.5,
+      promedio_puntuacion: 8.5,
       total_evaluaciones: 12,
     },
     {
       cliente_id: 'c2-uuid',
       cliente_nombre: 'Globex Corp',
-      promedio_evaluacion: 9.1,
+      promedio_puntuacion: 9.1,
       total_evaluaciones: 25,
     }
   ]
@@ -189,8 +189,10 @@ describe('EvaluationChart Fallbacks and Tech Hiding', () => {
 describe('TicketBreakdown Fallbacks and Tech Hiding', () => {
   const ticketData = {
     cliente_id: 'c1-uuid',
+    pendiente: 3,
     pendientes: 3,
     en_proceso: 5,
+    finalizado: 12,
     finalizados: 12,
     total_tickets: 20,
   }

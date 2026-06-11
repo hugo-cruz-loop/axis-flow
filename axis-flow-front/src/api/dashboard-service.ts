@@ -13,7 +13,6 @@ import {
   type ServicesLocalidadItem,
   type TicketStatusBreakdown,
   type AbsenteeismMetrics,
-  type AbsenteeismMetrics as TotalAusenciaTrabajadoresResponse
 } from '../schemas/dashboard-schemas'
 
 export const dashboardClient = axios.create({

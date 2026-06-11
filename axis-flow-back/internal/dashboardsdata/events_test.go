@@ -50,7 +50,6 @@ func TestEventsConsumer_CacheEviction(t *testing.T) {
 	clientID := uuid.New()
 	locationID := uuid.New()
 	ticketID := uuid.New()
-	companyID := int64(123)
 
 	dbMock := &mockEventsDB{
 		clientMap: map[string]uuid.UUID{

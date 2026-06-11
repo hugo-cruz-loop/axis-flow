@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { useForm, Controller } from 'react-hook-form'
+import { useForm, Controller, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { X } from 'lucide-react'
@@ -52,7 +52,6 @@ export function RoleFormDrawer({ open, onClose, role, permissions, onSuccess }: 
     handleSubmit,
     control,
     reset,
-    watch,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
@@ -135,7 +134,7 @@ export function RoleFormDrawer({ open, onClose, role, permissions, onSuccess }: 
     },
   })
 
-  const permissionIds = watch('permissionIds')
+  const permissionIds = useWatch({ control, name: 'permissionIds' }) ?? []
   const grouped = useMemo(() => groupByModule(permissions), [permissions])
 
   const togglePermission = (id: string) => {

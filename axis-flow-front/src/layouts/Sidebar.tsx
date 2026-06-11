@@ -51,7 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'System',
     items: [
-      { label: 'Settings', icon: Settings, to: '/dashboard/settings' },
+      { label: 'Settings', icon: Settings, to: '/admin/settings' },
       { label: 'Help', icon: HelpCircle, to: '/dashboard/help' },
     ],
   },

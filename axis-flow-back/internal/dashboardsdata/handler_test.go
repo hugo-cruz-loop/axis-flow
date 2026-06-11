@@ -15,7 +15,7 @@ import (
 
 func TestHTTPHandler_ReturnsDummyJSON(t *testing.T) {
 	cache := dashboardsdata.NewCacheClient(nil)
-	handler := dashboardsdata.NewHTTPHandler(cache)
+	handler := dashboardsdata.NewHTTPHandler(cache, nil)
 	router := chi.NewRouter()
 	noopAuth := func(next http.Handler) http.Handler { return next }
 	dashboardsdata.RegisterRoutes(router, handler, noopAuth)

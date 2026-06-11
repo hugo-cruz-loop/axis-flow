@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useRef } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ApplicationSchema, type ApplicationInput } from '../../schemas/validation'
 import { useApplyToJob } from '../../api/queries'
@@ -10,22 +10,22 @@ interface ApplicationFormProps {
 }
 
 export function ApplicationForm({ trabajoId, onSuccess }: ApplicationFormProps) {
-  const [turnstileToken, setTurnstileToken] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { mutate: apply, isPending } = useApplyToJob()
 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
     setValue,
-    watch,
   } = useForm<ApplicationInput>({
     resolver: zodResolver(ApplicationSchema),
     defaultValues: { trabajo_id: trabajoId, turnstile_token: '' },
   })
 
-  const cvFiles = watch('cv') as FileList | undefined
+  const cvFiles = useWatch({ control, name: 'cv' }) as FileList | undefined
+  const turnstileToken = useWatch({ control, name: 'turnstile_token' })
   const hasFile = cvFiles?.length === 1
 
   const onSubmit = (data: ApplicationInput) => {
@@ -38,13 +38,6 @@ export function ApplicationForm({ trabajoId, onSuccess }: ApplicationFormProps) 
     formData.append('turnstile_token', data.turnstile_token)
 
     apply(formData, { onSuccess })
-  }
-
-  // In a real integration, the Turnstile widget calls this callback with the token.
-  // Here we expose a setter so tests and future integration can inject the value.
-  const handleTurnstileCallback = (token: string) => {
-    setTurnstileToken(token)
-    setValue('turnstile_token', token, { shouldValidate: true })
   }
 
   return (

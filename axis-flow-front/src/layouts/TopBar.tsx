@@ -8,6 +8,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/dashboard/users': 'Users',
   '/dashboard/users/new': 'Create User',
   '/dashboard/roles': 'Roles',
+  '/admin/settings': 'Settings',
   '/dashboard/settings': 'Settings',
   '/dashboard/help': 'Help',
 }

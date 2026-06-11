@@ -134,4 +134,8 @@ export type AbsenteeismMetrics = {
   total_inasistencias: number
   empleados_afectados: number
   total_ausencias_actuales: number
+  comparativa_mensual?: Array<{
+    mes: string
+    inasistencias: number
+  }>
 }

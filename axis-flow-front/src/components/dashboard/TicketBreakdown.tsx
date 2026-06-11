@@ -1,6 +1,6 @@
 import React from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { TicketStatusBreakdown } from '../../schemas/dashboard-schemas';
+import type { TicketStatusBreakdown } from '../../schemas/dashboard-schemas';
 
 interface TicketBreakdownProps {
   metrics?: TicketStatusBreakdown | null;

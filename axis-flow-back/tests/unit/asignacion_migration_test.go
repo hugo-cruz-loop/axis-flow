@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const asignacionMigration = "V4__create_asignacion_schema.sql"
+const asignacionMigration = "V11__create_asignacion_schema.sql"
 
 func readAsignacionMigration(t *testing.T) string {
 	t.Helper()

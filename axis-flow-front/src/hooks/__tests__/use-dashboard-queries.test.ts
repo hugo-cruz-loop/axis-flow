@@ -97,7 +97,7 @@ describe('React Query Dashboard Hooks', () => {
   })
 
   it('useTodasAusencias calls service if id is provided', async () => {
-    const mockData = { empresa_id: 123, total_ausencias: 2, total_historico_inasistencias: 2 }
+    const mockData = { empresa_id: 123, total_ausencias: 2, total_historico_inasistencias: 2, year: null }
     vi.mocked(DashboardService.getTodasAusencias).mockResolvedValueOnce(mockData)
 
     const { result } = renderHook(() => useTodasAusencias('123'), {
@@ -136,7 +136,7 @@ describe('React Query Dashboard Hooks', () => {
   })
 
   it('useTotalTrabajosActivos calls service if id is provided', async () => {
-    const mockData = { empresa_id: 123, total_vacantes_activas: 2 }
+    const mockData = { empresa_id: 123, total_vacantes_activas: 2, vacantes: [] }
     vi.mocked(DashboardService.getTotalTrabajosActivos).mockResolvedValueOnce(mockData)
 
     const { result } = renderHook(() => useTotalTrabajosActivos('123'), {

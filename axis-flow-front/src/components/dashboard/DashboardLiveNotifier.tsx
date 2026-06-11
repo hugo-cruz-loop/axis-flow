@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 
 interface LiveNotifierProps {
   isRefetching: boolean;
@@ -11,17 +11,11 @@ export const DashboardLiveNotifier: React.FC<LiveNotifierProps> = ({
   isError,
   widgetName,
 }) => {
-  const [announcement, setAnnouncement] = useState('');
-
-  useEffect(() => {
-    if (isRefetching) {
-      setAnnouncement(`Refreshing data for ${widgetName}...`);
-    } else if (isError) {
-      setAnnouncement(`Failed to update ${widgetName} data.`);
-    } else {
-      setAnnouncement(`${widgetName} metrics updated successfully.`);
-    }
-  }, [isRefetching, isError, widgetName]);
+  const announcement = isRefetching
+    ? `Refreshing data for ${widgetName}...`
+    : isError
+      ? `Failed to update ${widgetName} data.`
+      : `${widgetName} metrics updated successfully.`;
 
   return (
     <div 

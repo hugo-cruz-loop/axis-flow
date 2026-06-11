@@ -67,10 +67,18 @@ type mockRows struct {
 	err  error
 }
 
-func (m *mockRows) Close() {}
-func (m *mockRows) Err() error { return m.err }
-func (m *mockRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
+func (m *mockRows) Close()                                       {}
+func (m *mockRows) Err() error                                   { return m.err }
+func (m *mockRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (m *mockRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRows) Values() ([]any, error) {
+	if m.idx < 1 || m.idx > len(m.rows) {
+		return nil, fmt.Errorf("out of bounds values")
+	}
+	return m.rows[m.idx-1], nil
+}
+func (m *mockRows) RawValues() [][]byte { return nil }
+func (m *mockRows) Conn() *pgx.Conn     { return nil }
 func (m *mockRows) Next() bool {
 	m.idx++
 	return m.idx <= len(m.rows)
