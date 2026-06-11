@@ -148,6 +148,9 @@ func (eventoRepositoryStub) CreateIniciado(_ context.Context, _ *formularios.Eve
 func (eventoRepositoryStub) UpdateStatus(_ context.Context, _, _ uuid.UUID, _ string) error {
 	return nil
 }
+func (eventoRepositoryStub) GetEmpresaIDByID(_ context.Context, _ uuid.UUID) (uuid.UUID, error) {
+	return uuid.Nil, nil
+}
 
 type respuestaRepositoryStub struct{}
 

@@ -20,14 +20,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockEventoServicer captures CancelEvento calls.
+// mockEventoServicer captures CancelEventoByID calls.
 type mockEventoServicer struct {
 	called    []uuid.UUID
 	returnErr error
 	mu        atomic.Int32
 }
 
-func (m *mockEventoServicer) CancelEvento(_ context.Context, id uuid.UUID) error {
+func (m *mockEventoServicer) CancelEventoByID(_ context.Context, id uuid.UUID) error {
 	m.mu.Add(1)
 	m.called = append(m.called, id)
 	return m.returnErr

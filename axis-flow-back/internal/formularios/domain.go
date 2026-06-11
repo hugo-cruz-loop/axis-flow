@@ -200,6 +200,14 @@ type EventoRepository interface {
 	// receives a cross-domain event. Returns formularios.ErrNotFound
 	// for unknown IDs or foreign tenants.
 	UpdateStatus(ctx context.Context, id, empresaID uuid.UUID, status string) error
+
+	// GetEmpresaIDByID looks up an evento's tenant by primary key
+	// alone (NO empresaID filter). PR-5 (5.2b) — the cross-domain
+	// EventoCancelado consumer does not have the tenant in the
+	// message, so the service uses this method to resolve the
+	// tenant scope and then call the tenant-scoped CancelEvento.
+	// Returns formularios.ErrNotFound for unknown IDs.
+	GetEmpresaIDByID(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 }
 
 // RespuestaRepository defines persistence operations for field answers

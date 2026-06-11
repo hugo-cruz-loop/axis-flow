@@ -17,12 +17,12 @@
 //	POST   /respuesta                                   JWTAuth → respH.SubmitRespuesta
 //	GET    /respuesta/reporte/pregunta/{id}/pdf         JWTAuth → respH.GetReportePDF
 //
-// TODO(PR-5): the publisher, cache invalidator, pgx pool and
-// PDFRenderer/ReportStorage dependencies are NOT wired here. PR-5
-// (Events + Observability) will add newFormulariosModule in main.go
-// that constructs the concrete repos + services + this routes
-// function. This file ships ahead of main.go wiring on purpose so
-// PR-5 can pick it up without a merge conflict.
+// PR-5 (5.4): the publisher, cache invalidator, pgx pool, and
+// PDFRenderer/ReportStorage dependencies are now wired via
+// cmd/server/formularios_module.go's newFormulariosModule. The
+// real PDFRenderer / ReportStorage impls land in PR-6; PR-5
+// uses noop stubs (TODO(PR-6) at the stub sites in
+// formularios_module.go).
 package main
 
 import (

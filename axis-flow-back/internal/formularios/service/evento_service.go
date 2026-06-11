@@ -51,6 +51,16 @@ type EventoService interface {
 	// receive formularios.ErrNotFound (no leak). The service does NOT
 	// publish a new event — the consumer publishes any follow-up.
 	CancelEvento(ctx context.Context, id, empresaID uuid.UUID) error
+
+	// CancelEventoByID is the cross-domain consumer seam: it
+	// resolves the evento (any tenant), then delegates to the
+	// tenant-scoped CancelEvento. The consumer does not know
+	// the tenant — the message only carries the evento_id —
+	// so the service is the source of truth for the tenant
+	// scope. The implementation MUST use the evento's own
+	// empresaID (not a caller-supplied one) so the cache
+	// invalidation lands on the right key.
+	CancelEventoByID(ctx context.Context, id uuid.UUID) error
 }
 
 // eventoService is the concrete implementation.
@@ -248,6 +258,26 @@ func (s *eventoService) CancelEvento(ctx context.Context, id, empresaID uuid.UUI
 	// No publish: the consumer publishes any follow-up event. The
 	// service is a pure data-side action.
 	return nil
+}
+
+// CancelEventoByID is the cross-domain consumer seam. The Redis
+// stream message carries only the evento_id (no tenant scope), so
+// the service resolves the tenant from the persisted row and then
+// delegates to the tenant-scoped CancelEvento. The implementation
+// is two-step: look up the evento's empresaID via the no-tenant
+// GetEmpresaIDByID method, then call CancelEvento with that
+// empresaID.
+//
+// Returns formularios.ErrNotFound for unknown IDs. A cross-domain
+// message for a non-existent evento is a genuine miss — the source
+// system (Asignacion) should re-check its own state and either
+// re-publish or drop the event.
+func (s *eventoService) CancelEventoByID(ctx context.Context, id uuid.UUID) error {
+	empresaID, err := s.repo.GetEmpresaIDByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.CancelEvento(ctx, id, empresaID)
 }
 
 // geoOrNil returns (lat, lon) with both as float64, or (0, 0) when either

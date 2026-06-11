@@ -194,6 +194,27 @@ func (r *PgxEventoRepository) UpdateStatus(ctx context.Context, id, empresaID uu
 	return nil
 }
 
+// GetEmpresaIDByID looks up the evento's tenant by primary key
+// alone. PR-5 (5.2b) — the cross-domain consumer seam. The query
+// is intentional: NO empresa_id filter (the consumer does not
+// know the tenant). Returns formularios.ErrNotFound for unknown
+// IDs. NEVER expose this method via an HTTP handler — it
+// intentionally bypasses the tenant scope.
+func (r *PgxEventoRepository) GetEmpresaIDByID(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	var empresaID uuid.UUID
+	err := r.db.QueryRow(ctx,
+		`SELECT empresa_id
+         FROM formularios.eventos_evento
+         WHERE id = $1`, id).Scan(&empresaID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, formularios.ErrNotFound
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("evento_repository.GetEmpresaIDByID: %w", err)
+	}
+	return empresaID, nil
+}
+
 // ---------------------------------------------------------------------------
 // scanners
 // ---------------------------------------------------------------------------
@@ -452,4 +473,20 @@ func (r *InMemEventoRepository) UpdateStatus(_ context.Context, id, empresaID uu
 	}
 	e.Status = status
 	return nil
+}
+
+// GetEmpresaIDByID looks up the evento's tenant by primary key
+// alone (no tenant filter). PR-5 (5.2b) — the cross-domain
+// consumer seam. Returns formularios.ErrNotFound for unknown IDs.
+// Mirrors the Pgx adapter's behavior in the in-memory test
+// fixture so the service tests can exercise the seam without a
+// real database.
+func (r *InMemEventoRepository) GetEmpresaIDByID(_ context.Context, id uuid.UUID) (uuid.UUID, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	e, ok := r.eventos[id]
+	if !ok {
+		return uuid.Nil, formularios.ErrNotFound
+	}
+	return e.EmpresaID, nil
 }

@@ -27,11 +27,12 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockEventoService struct {
-	createEventoFn       func(ctx context.Context, e *formularios.Evento, formularioIDs []uuid.UUID, empresaID uuid.UUID) (*formularios.Evento, error)
-	getEventoFn          func(ctx context.Context, id, empresaID uuid.UUID) (*formularios.Evento, error)
-	getEventosByEmpCteFn func(ctx context.Context, empresaID, clienteID uuid.UUID, status *string, page, pageSize int) ([]*formularios.Evento, int, error)
-	iniciarEventoFn      func(ctx context.Context, ei *formularios.EventoIniciado, empresaID uuid.UUID) (*formularios.EventoIniciado, error)
-	cancelEventoFn       func(ctx context.Context, id, empresaID uuid.UUID) error
+	createEventoFn        func(ctx context.Context, e *formularios.Evento, formularioIDs []uuid.UUID, empresaID uuid.UUID) (*formularios.Evento, error)
+	getEventoFn           func(ctx context.Context, id, empresaID uuid.UUID) (*formularios.Evento, error)
+	getEventosByEmpCteFn  func(ctx context.Context, empresaID, clienteID uuid.UUID, status *string, page, pageSize int) ([]*formularios.Evento, int, error)
+	iniciarEventoFn       func(ctx context.Context, ei *formularios.EventoIniciado, empresaID uuid.UUID) (*formularios.EventoIniciado, error)
+	cancelEventoFn        func(ctx context.Context, id, empresaID uuid.UUID) error
+	cancelEventoByIDFn    func(ctx context.Context, id uuid.UUID) error
 }
 
 func (m *mockEventoService) CreateEvento(ctx context.Context, e *formularios.Evento, formularioIDs []uuid.UUID, empresaID uuid.UUID) (*formularios.Evento, error) {
@@ -51,6 +52,12 @@ func (m *mockEventoService) CancelEvento(ctx context.Context, id, empresaID uuid
 		return nil
 	}
 	return m.cancelEventoFn(ctx, id, empresaID)
+}
+func (m *mockEventoService) CancelEventoByID(ctx context.Context, id uuid.UUID) error {
+	if m.cancelEventoByIDFn == nil {
+		return nil
+	}
+	return m.cancelEventoByIDFn(ctx, id)
 }
 
 // eventoRouter mounts the three evento routes on a chi router.

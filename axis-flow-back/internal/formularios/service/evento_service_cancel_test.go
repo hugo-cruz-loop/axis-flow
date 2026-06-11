@@ -139,6 +139,39 @@ func TestEventoService_CancelEvento_RespectsTenantInCacheKey(t *testing.T) {
 	assert.Equal(t, empresaA, cache.eventoCalls[0].Empresa, "cache invalidation must use the cancelled evento's empresa, not the caller's")
 }
 
+// TestEventoService_CancelEventoByID_ResolvesTenantAndCancels
+// documents the cross-domain consumer seam: the message has only
+// the evento_id, so the service resolves the tenant from the
+// persisted row and delegates to the tenant-scoped CancelEvento.
+func TestEventoService_CancelEventoByID_ResolvesTenantAndCancels(t *testing.T) {
+	repo, pub, cache := newEventoFixture(t)
+	svc := service.NewEventoService(repo, pub, cache)
+
+	empresaID := uuid.New()
+	clienteID := uuid.New()
+	e := seedEvento(t, repo, empresaID, clienteID, uuid.New())
+
+	require.NoError(t, svc.CancelEventoByID(context.Background(), e.ID))
+
+	got, err := svc.GetEvento(context.Background(), e.ID, empresaID)
+	require.NoError(t, err)
+	assert.Equal(t, formularios.EventoStatusCancelado, got.Status)
+	require.Len(t, cache.eventoCalls, 1)
+	assert.Equal(t, empresaID, cache.eventoCalls[0].Empresa)
+}
+
+// TestEventoService_CancelEventoByID_UnknownID confirms that an
+// unknown ID at the cross-domain seam returns formularios.ErrNotFound
+// (the message is a genuine miss).
+func TestEventoService_CancelEventoByID_UnknownID(t *testing.T) {
+	repo, pub, cache := newEventoFixture(t)
+	svc := service.NewEventoService(repo, pub, cache)
+
+	err := svc.CancelEventoByID(context.Background(), uuid.New())
+	require.ErrorIs(t, err, formularios.ErrNotFound)
+	assert.Empty(t, cache.eventoCalls)
+}
+
 // time is referenced here so the test file does not fail to compile
 // if a future test needs a time helper.
 var _ = time.Now

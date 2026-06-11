@@ -44,8 +44,13 @@ const streamEventoCancelado = "formularios:evento_cancelado"
 // EventoServicer is the minimal interface the consumer depends on.
 // The concrete *service.EventoService satisfies this interface; a
 // mock is used in the unit tests.
+//
+// CancelEventoByID takes the evento id only — the consumer does
+// not know the tenant scope (the Asignacion → formularios
+// cross-domain message carries only the evento_id). The service
+// resolves the tenant from the persisted row.
 type EventoServicer interface {
-	CancelEvento(ctx context.Context, id uuid.UUID) error
+	CancelEventoByID(ctx context.Context, id uuid.UUID) error
 }
 
 // EventoCanceladoConsumer reads the cross-domain EventoCancelado
@@ -129,11 +134,11 @@ func (c *EventoCanceladoConsumer) Start(ctx context.Context) {
 						)
 						continue
 					}
-					if err := c.svc.CancelEvento(ctx, eventoID); err != nil {
+					if err := c.svc.CancelEventoByID(ctx, eventoID); err != nil {
 						// 09-pattern mirror: log + move on. Future PR will
 						// add retry-with-backoff and dead-letter routing per
 						// the spec's failure-handling table.
-						slog.Error("EventoCanceladoConsumer: CancelEvento failed",
+						slog.Error("EventoCanceladoConsumer: CancelEventoByID failed",
 							slog.String("evento_id", eventoIDStr),
 							slog.String("error", err.Error()),
 						)
