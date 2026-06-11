@@ -18,11 +18,13 @@
 //	GET    /respuesta/reporte/pregunta/{id}/pdf         JWTAuth → respH.GetReportePDF
 //
 // PR-5 (5.4): the publisher, cache invalidator, pgx pool, and
-// PDFRenderer/ReportStorage dependencies are now wired via
-// cmd/server/formularios_module.go's newFormulariosModule. The
-// real PDFRenderer / ReportStorage impls land in PR-6; PR-5
-// uses noop stubs (TODO(PR-6) at the stub sites in
-// formularios_module.go).
+// PDFRenderer/ReportStorage dependencies are wired via
+// cmd/server/formularios_module.go's newFormulariosModule.
+//
+// PR-6 (6.4): the real PDFRenderer (Gotenberg HTTP), ReportStorage
+// (S3 + IAM), and Locker (Redis SET-NX-with-TTL) are wired in
+// formularios_module.go. The render pool (Celery equivalent) is
+// also wired. No TODO(PR-6) markers remain in the module.
 package main
 
 import (
