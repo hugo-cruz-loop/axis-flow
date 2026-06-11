@@ -145,6 +145,9 @@ func (eventoRepositoryStub) ListByEmpCte(_ context.Context, _, _ uuid.UUID, _ *s
 func (eventoRepositoryStub) CreateIniciado(_ context.Context, _ *formularios.EventoIniciado) error {
 	return nil
 }
+func (eventoRepositoryStub) UpdateStatus(_ context.Context, _, _ uuid.UUID, _ string) error {
+	return nil
+}
 
 type respuestaRepositoryStub struct{}
 

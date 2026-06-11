@@ -27,10 +27,11 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockEventoService struct {
-	createEventoFn     func(ctx context.Context, e *formularios.Evento, formularioIDs []uuid.UUID, empresaID uuid.UUID) (*formularios.Evento, error)
-	getEventoFn        func(ctx context.Context, id, empresaID uuid.UUID) (*formularios.Evento, error)
+	createEventoFn       func(ctx context.Context, e *formularios.Evento, formularioIDs []uuid.UUID, empresaID uuid.UUID) (*formularios.Evento, error)
+	getEventoFn          func(ctx context.Context, id, empresaID uuid.UUID) (*formularios.Evento, error)
 	getEventosByEmpCteFn func(ctx context.Context, empresaID, clienteID uuid.UUID, status *string, page, pageSize int) ([]*formularios.Evento, int, error)
-	iniciarEventoFn    func(ctx context.Context, ei *formularios.EventoIniciado, empresaID uuid.UUID) (*formularios.EventoIniciado, error)
+	iniciarEventoFn      func(ctx context.Context, ei *formularios.EventoIniciado, empresaID uuid.UUID) (*formularios.EventoIniciado, error)
+	cancelEventoFn       func(ctx context.Context, id, empresaID uuid.UUID) error
 }
 
 func (m *mockEventoService) CreateEvento(ctx context.Context, e *formularios.Evento, formularioIDs []uuid.UUID, empresaID uuid.UUID) (*formularios.Evento, error) {
@@ -44,6 +45,12 @@ func (m *mockEventoService) GetEventosByEmpCte(ctx context.Context, empresaID, c
 }
 func (m *mockEventoService) IniciarEvento(ctx context.Context, ei *formularios.EventoIniciado, empresaID uuid.UUID) (*formularios.EventoIniciado, error) {
 	return m.iniciarEventoFn(ctx, ei, empresaID)
+}
+func (m *mockEventoService) CancelEvento(ctx context.Context, id, empresaID uuid.UUID) error {
+	if m.cancelEventoFn == nil {
+		return nil
+	}
+	return m.cancelEventoFn(ctx, id, empresaID)
 }
 
 // eventoRouter mounts the three evento routes on a chi router.

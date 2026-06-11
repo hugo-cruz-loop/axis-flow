@@ -193,6 +193,13 @@ type EventoRepository interface {
 	ListByEmpCte(ctx context.Context, empresaID, clienteID uuid.UUID, status *string, page, pageSize int) ([]*Evento, int, error)
 
 	CreateIniciado(ctx context.Context, i *EventoIniciado) error
+
+	// UpdateStatus flips an evento's status scoped to empresaID. PR-5
+	// (5.2a) — the CancelEvento service method uses this to mark an
+	// evento as 'cancelado' when the EventoCancelado consumer
+	// receives a cross-domain event. Returns formularios.ErrNotFound
+	// for unknown IDs or foreign tenants.
+	UpdateStatus(ctx context.Context, id, empresaID uuid.UUID, status string) error
 }
 
 // RespuestaRepository defines persistence operations for field answers

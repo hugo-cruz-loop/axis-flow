@@ -56,6 +56,9 @@ func (s *stubEventoSvc) IniciarEvento(_ context.Context, ei *formularios.EventoI
 	}
 	return ei, nil
 }
+func (s *stubEventoSvc) CancelEvento(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
+	return nil
+}
 
 // ── stubRespuestaSvc ─────────────────────────────────────────────────────
 

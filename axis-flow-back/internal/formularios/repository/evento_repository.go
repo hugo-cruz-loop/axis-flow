@@ -168,6 +168,32 @@ func (r *PgxEventoRepository) CreateIniciado(ctx context.Context, i *formularios
 	return nil
 }
 
+// UpdateStatus flips the evento's status scoped to empresaID. PR-5
+// (5.2a) — the CancelEvento service method uses this to mark an
+// evento as 'cancelado' when the EventoCancelado consumer receives
+// a cross-domain event. Returns formularios.ErrNotFound for
+// unknown IDs or foreign tenants. The SQL CHECK on status is
+// enforced at the DB level; the caller is expected to have already
+// validated the new status against the canonical set.
+func (r *PgxEventoRepository) UpdateStatus(ctx context.Context, id, empresaID uuid.UUID, status string) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE formularios.eventos_evento
+         SET status = $1
+         WHERE id = $2 AND empresa_id = $3`,
+		status, id, empresaID,
+	)
+	if err != nil {
+		if mapped := mapPgError(err); mapped != nil {
+			return mapped
+		}
+		return fmt.Errorf("evento_repository.UpdateStatus: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return formularios.ErrNotFound
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // scanners
 // ---------------------------------------------------------------------------
@@ -406,5 +432,24 @@ func (r *InMemEventoRepository) CreateIniciado(_ context.Context, i *formularios
 	}
 	cp := *i
 	r.eventosIniciados[i.ID] = &cp
+	return nil
+}
+
+// UpdateStatus flips the evento's status in-memory, scoped to
+// empresaID. PR-5 (5.2a). Mirrors the SQL UPDATE behavior: unknown
+// IDs OR foreign tenants return formularios.ErrNotFound (no leak);
+// the SQL CHECK on status is mirrored by validEventoStatus so the
+// in-memory adapter cannot drift from the DB-level invariant.
+func (r *InMemEventoRepository) UpdateStatus(_ context.Context, id, empresaID uuid.UUID, status string) error {
+	if !validEventoStatus(status) {
+		return fmt.Errorf("%w: invalid evento.status", formularios.ErrInvalidInput)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.eventos[id]
+	if !ok || e.EmpresaID != empresaID {
+		return formularios.ErrNotFound
+	}
+	e.Status = status
 	return nil
 }

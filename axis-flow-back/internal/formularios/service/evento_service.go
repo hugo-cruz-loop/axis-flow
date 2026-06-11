@@ -42,6 +42,15 @@ type EventoService interface {
 	// though the repository enforces it again at the FK level — defence
 	// in depth.
 	IniciarEvento(ctx context.Context, ei *formularios.EventoIniciado, empresaID uuid.UUID) (*formularios.EventoIniciado, error)
+
+	// CancelEvento marks the evento as 'cancelado' and invalidates the
+	// cached pendientes list for the (empresa, cliente) pair. PR-5 (5.2a)
+	// — consumed by the EventoCancelado Redis stream consumer. The
+	// method is idempotent: cancelling an already-cancelled evento is
+	// a no-op. IDOR is enforced via the GetByID check; foreign tenants
+	// receive formularios.ErrNotFound (no leak). The service does NOT
+	// publish a new event — the consumer publishes any follow-up.
+	CancelEvento(ctx context.Context, id, empresaID uuid.UUID) error
 }
 
 // eventoService is the concrete implementation.
@@ -191,6 +200,53 @@ func validateIniciado(ei *formularios.EventoIniciado) error {
 	if ei.Status == "" {
 		return formularios.ErrInvalidInput
 	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// CancelEvento — PR-5 (5.2a).
+// ---------------------------------------------------------------------------
+
+// CancelEvento marks the evento as 'cancelado' and invalidates the
+// cached pendientes list for the (empresa, cliente) pair. The method
+// is consumed by the EventoCancelado Redis stream consumer (PR-5
+// 5.2b); the cross-domain event source is the Asignacion service
+// (per the spec's "Cancel | Asignacion Service" row in the
+// "Consume" table).
+//
+// IDOR: the evento must belong to the caller's empresa. Foreign
+// tenants receive formularios.ErrNotFound (no leak). The cache
+// invalidation uses the EVENTO's (empresa, cliente) pair, not the
+// caller's — the caller IS the cross-domain consumer so they share
+// the same tenant context in practice, but the service uses the
+// persisted row's data as the source of truth.
+//
+// Idempotency: cancelling an already-cancelled evento is a no-op
+// (returns nil). The consumer is at-least-once and may redeliver
+// after a transient processing error.
+func (s *eventoService) CancelEvento(ctx context.Context, id, empresaID uuid.UUID) error {
+	// IDOR + parent lookup. Foreign tenants get ErrNotFound; unknown
+	// IDs get ErrNotFound; the message is the same to avoid leaking
+	// the existence of foreign rows.
+	parent, err := s.repo.GetByID(ctx, id, empresaID)
+	if err != nil {
+		return err
+	}
+	// Idempotency short-circuit: an already-cancelled evento does
+	// not need another status flip or cache invalidation. The
+	// consumer dedupes downstream; this is just an optimization.
+	if parent.Status == formularios.EventoStatusCancelado {
+		return nil
+	}
+	if err := s.repo.UpdateStatus(ctx, id, empresaID, formularios.EventoStatusCancelado); err != nil {
+		return err
+	}
+	// Invalidate the cached pendientes list for the (empresa, cliente)
+	// pair. UNLINK is async so the call returns immediately; the
+	// next list call will re-warm the cache from the DB.
+	_ = s.cache.UnlinkEventosByEmpCte(ctx, parent.EmpresaID, parent.ClienteID)
+	// No publish: the consumer publishes any follow-up event. The
+	// service is a pure data-side action.
 	return nil
 }
 
