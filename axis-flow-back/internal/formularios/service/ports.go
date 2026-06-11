@@ -67,19 +67,30 @@ type CacheInvalidator interface {
 // a Redis set. The PDF service uses it to deduplicate concurrent PDF
 // generation jobs for the same check-in (KeyReporteS3Lock) and to keep a
 // "pending" set (KeyReportePending) for observability.
+//
+// PR-6 (6.3): the port signature changed to take uuid.UUID + duration
+// instead of string + int. The previous string-based signature was a
+// leak from the locker's internal Redis key shape; the new signature
+// makes the locker responsible for building the canonical
+// "formularios:reporte:lock:<uuid>" key. The previous Locker port
+// was satisfied by a test stub in pdf_service_test.go; that stub is
+// updated in PR-6 to match the new shape.
 type Locker interface {
-	// Acquire takes a Redis SET-NX-with-TTL lock on key. Returns an
-	// UnlockFn that releases the lock; the caller MUST invoke it via
-	// defer. Returns an error if the lock is held by another process.
-	Acquire(ctx context.Context, key string, ttlSeconds int) (UnlockFn, error)
+	// Acquire takes a Redis SET-NX-with-TTL lock on the
+	// "formularios:reporte:lock:<iniciadoID>" key. Returns an
+	// UnlockFn that releases the lock; the caller MUST invoke it
+	// via defer. Returns formularios.ErrConflict if the lock is
+	// held by another process.
+	Acquire(ctx context.Context, iniciadoID uuid.UUID) (UnlockFn, error)
 
-	// AddToPending adds member to a Redis SET (used for the pending
-	// report set).
-	AddToPending(ctx context.Context, setKey, member string) error
+	// AddToPending adds the iniciadoID to the pending report set
+	// (KeyReportePending).
+	AddToPending(ctx context.Context, iniciadoID uuid.UUID) error
 
-	// RemoveFromPending removes member from a Redis SET. Safe to call
-	// even if the member is not present.
-	RemoveFromPending(ctx context.Context, setKey, member string) error
+	// RemoveFromPending removes the iniciadoID from the pending
+	// report set. Safe to call even if the member is not
+	// present.
+	RemoveFromPending(ctx context.Context, iniciadoID uuid.UUID) error
 }
 
 // UnlockFn releases a distributed lock. Safe to call multiple times; the

@@ -85,12 +85,6 @@ type pdfService struct {
 	metrics  *telemetry.Metrics
 }
 
-// reportLockTTL is the TTL for the S3 report lock. Long enough to cover
-// a typical PDF render (10s per the spec's WKHTMLTOPDF_TIMEOUT_SECONDS)
-// with headroom for a slow VPS, short enough that a crashed worker does
-// not block retries for hours.
-const reportLockTTLSeconds = 300
-
 // NewPDFService constructs a PDFService. The renderer, storage, and
 // locker are required (stubs in unit tests; real impls in PR-6).
 // metrics may be nil — the service is a no-op on the metric calls
@@ -131,8 +125,10 @@ func (s *pdfService) GenerateReporte(
 
 	// 1. Lock. Failure to acquire means a concurrent worker is already
 	// generating the report; we propagate so the caller can retry.
-	lockKey := fmt.Sprintf(formularios.KeyReporteS3Lock, iniciadoID)
-	unlock, err := s.locker.Acquire(ctx, lockKey, reportLockTTLSeconds)
+	// PR-6 (6.3): the Locker port signature changed to take
+	// uuid.UUID + duration (the locker builds the canonical
+	// "formularios:reporte:lock:<uuid>" key internally).
+	unlock, err := s.locker.Acquire(ctx, iniciadoID)
 	if err != nil {
 		s.recordPDFMetric(start, "error")
 		s.logError(ctx, "GenerateReporte", "lock_acquire_failed", empresaID, err)
@@ -143,9 +139,11 @@ func (s *pdfService) GenerateReporte(
 	// 2. Pending set. Best-effort; if the add fails we still continue
 	// (the lock is held, the report will be generated). The remove
 	// runs in defer to guarantee cleanup.
-	pendingKey := formularios.KeyReportePending
-	_ = s.locker.AddToPending(ctx, pendingKey, iniciadoID.String())
-	defer func() { _ = s.locker.RemoveFromPending(ctx, pendingKey, iniciadoID.String()) }()
+	// PR-6 (6.3): AddToPending / RemoveFromPending now take the
+	// iniciadoID directly (the locker builds the
+	// "formularios:reportes:pending" set key internally).
+	_ = s.locker.AddToPending(ctx, iniciadoID)
+	defer func() { _ = s.locker.RemoveFromPending(ctx, iniciadoID) }()
 
 	// 3. Fetch respuestas. An iniciado with zero respuestas is treated
 	// as "not found" — either the iniciadoID is unknown or it is in a

@@ -78,45 +78,34 @@ var minimalValidPDFBytes = []byte(
 
 // stubLocker implements service.Locker. Records the lock + pending ops.
 type stubLocker struct {
-	acquireCalls   []acquireCall
-	pendingAdds    []pendingCall
-	pendingRemoves []pendingCall
+	acquireCalls   []uuid.UUID
+	pendingAdds    []uuid.UUID
+	pendingRemoves []uuid.UUID
 	acquireErr     error
 	pendingErr     error
 	unlockCount    int
 }
 
-type acquireCall struct {
-	key       string
-	ttlSecs   int
-	unlockRan bool
-}
-
-type pendingCall struct {
-	setKey string
-	member string
-}
-
-func (s *stubLocker) Acquire(_ context.Context, key string, ttlSeconds int) (service.UnlockFn, error) {
-	s.acquireCalls = append(s.acquireCalls, acquireCall{key: key, ttlSecs: ttlSeconds})
+func (s *stubLocker) Acquire(_ context.Context, iniciadoID uuid.UUID) (service.UnlockFn, error) {
+	s.acquireCalls = append(s.acquireCalls, iniciadoID)
 	if s.acquireErr != nil {
 		return func(context.Context) error { return nil }, s.acquireErr
 	}
 	idx := len(s.acquireCalls) - 1
 	return func(context.Context) error {
-		s.acquireCalls[idx].unlockRan = true
+		_ = idx
 		s.unlockCount++
 		return nil
 	}, nil
 }
 
-func (s *stubLocker) AddToPending(_ context.Context, setKey, member string) error {
-	s.pendingAdds = append(s.pendingAdds, pendingCall{setKey, member})
+func (s *stubLocker) AddToPending(_ context.Context, iniciadoID uuid.UUID) error {
+	s.pendingAdds = append(s.pendingAdds, iniciadoID)
 	return s.pendingErr
 }
 
-func (s *stubLocker) RemoveFromPending(_ context.Context, setKey, member string) error {
-	s.pendingRemoves = append(s.pendingRemoves, pendingCall{setKey, member})
+func (s *stubLocker) RemoveFromPending(_ context.Context, iniciadoID uuid.UUID) error {
+	s.pendingRemoves = append(s.pendingRemoves, iniciadoID)
 	return s.pendingErr
 }
 
@@ -216,14 +205,12 @@ func TestPDFService_GenerateReporte_HappyPath(t *testing.T) {
 
 	// Locker: Acquire + AddToPending before; RemoveFromPending + Unlock after.
 	require.Len(t, f.locker.acquireCalls, 1)
-	assert.Contains(t, f.locker.acquireCalls[0].key, "formularios:reporte:lock:")
-	assert.Equal(t, 300, f.locker.acquireCalls[0].ttlSecs)
-	assert.True(t, f.locker.acquireCalls[0].unlockRan, "unlock must be deferred")
+	assert.Equal(t, iniciadoID, f.locker.acquireCalls[0])
+	assert.Equal(t, 1, f.locker.unlockCount, "unlock must be deferred")
 	require.Len(t, f.locker.pendingAdds, 1)
-	assert.Equal(t, "formularios:reportes:pending", f.locker.pendingAdds[0].setKey)
-	assert.Equal(t, iniciadoID.String(), f.locker.pendingAdds[0].member)
+	assert.Equal(t, iniciadoID, f.locker.pendingAdds[0])
 	require.Len(t, f.locker.pendingRemoves, 1)
-	assert.Equal(t, iniciadoID.String(), f.locker.pendingRemoves[0].member)
+	assert.Equal(t, iniciadoID, f.locker.pendingRemoves[0])
 
 	// Publisher: StreamReporteGenerado with the spec payload.
 	require.Len(t, f.pub.events, 1)
