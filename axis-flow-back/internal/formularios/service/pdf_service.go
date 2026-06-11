@@ -83,14 +83,20 @@ type pdfService struct {
 	storage  ReportStorage
 	locker   Locker
 	metrics  *telemetry.Metrics
+	// pool is the optional bounded worker pool (PR-6 6.3 —
+	// Celery max(1, num_cores-1) equivalent). When non-nil,
+	// the render+upload steps run inside pool.Execute; when nil,
+	// the steps run inline (preserves the previous behavior for
+	// legacy unit tests).
+	pool *RenderPool
 }
 
 // NewPDFService constructs a PDFService. The renderer, storage, and
 // locker are required (stubs in unit tests; real impls in PR-6).
-// metrics may be nil — the service is a no-op on the metric calls
-// when nil, so legacy unit tests that don't care about metrics
-// don't need to be updated. The production wiring in main.go
-// passes the real *telemetry.Metrics from formulariosTelemetry.NewMetrics.
+// metrics and pool may be nil — the service is a no-op on the
+// metric calls when nil, and skips the bounded-worker-pool
+// wrapping when nil. The production wiring in main.go passes
+// the real *telemetry.Metrics and a real *RenderPool (PR-6 6.3).
 func NewPDFService(
 	evRepo formularios.EventoRepository,
 	respRepo formularios.RespuestaRepository,
@@ -100,6 +106,7 @@ func NewPDFService(
 	storage ReportStorage,
 	locker Locker,
 	metrics *telemetry.Metrics,
+	pool *RenderPool,
 ) PDFService {
 	return &pdfService{
 		evRepo:   evRepo,
@@ -110,6 +117,7 @@ func NewPDFService(
 		storage:  storage,
 		locker:   locker,
 		metrics:  metrics,
+		pool:     pool,
 	}
 }
 
@@ -164,8 +172,26 @@ func (s *pdfService) GenerateReporte(
 	// Render the HTML template (stub in PR-3; real Jinja2 + auto-escape
 	// in PR-6). The exact template is owned by the spec; PR-3 just
 	// confirms the seam works end-to-end with deterministic stub HTML.
+	//
+	// PR-6 (6.3): when a *RenderPool is wired (production), the
+	// render+upload steps run inside pool.Execute (the Celery
+	// max(1, num_cores-1) equivalent). When pool is nil (legacy
+	// unit tests), the steps run inline.
 	html := buildReporteHTML(iniciadoID, respuestas)
-	pdfBytes, err := s.renderer.Render(ctx, html)
+
+	var pdfBytes []byte
+	if s.pool != nil {
+		err = s.pool.Execute(ctx, func() error {
+			rendered, renderErr := s.renderer.Render(ctx, html)
+			if renderErr != nil {
+				return renderErr
+			}
+			pdfBytes = rendered
+			return nil
+		})
+	} else {
+		pdfBytes, err = s.renderer.Render(ctx, html)
+	}
 	if err != nil {
 		// The underlying error message (e.g. "wkhtmltopdf: signal
 		// killed", "exit status 1") is internal to the renderer and
@@ -182,7 +208,20 @@ func (s *pdfService) GenerateReporte(
 	// paths) is intentionally not surfaced.
 	uploadStart := time.Now().UTC()
 	key := buildReporteS3Key(iniciadoID)
-	url, err := s.storage.Upload(ctx, key, pdfBytes)
+
+	var url string
+	if s.pool != nil {
+		err = s.pool.Execute(ctx, func() error {
+			uploaded, uploadErr := s.storage.Upload(ctx, key, pdfBytes)
+			if uploadErr != nil {
+				return uploadErr
+			}
+			url = uploaded
+			return nil
+		})
+	} else {
+		url, err = s.storage.Upload(ctx, key, pdfBytes)
+	}
 	if err != nil {
 		s.recordS3Metric(uploadStart, "error", int64(len(pdfBytes)))
 		s.logError(ctx, "GenerateReporte", "upload_failed", empresaID, err)

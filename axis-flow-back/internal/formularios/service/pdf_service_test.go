@@ -137,7 +137,7 @@ func newPDFFixture(t *testing.T) *pdfFixture {
 }
 
 func (f *pdfFixture) svc() service.PDFService {
-	return service.NewPDFService(f.evRepo, f.respRepo, f.pub, f.cache, f.renderer, f.storage, f.locker, nil)
+	return service.NewPDFService(f.evRepo, f.respRepo, f.pub, f.cache, f.renderer, f.storage, f.locker, nil, nil)
 }
 
 // svcWithMetrics is a test-only variant of svc() that wires a real
@@ -146,7 +146,7 @@ func (f *pdfFixture) svc() service.PDFService {
 func (f *pdfFixture) svcWithMetrics() service.PDFService {
 	reg := prometheus.NewRegistry()
 	m := formulariosTelemetry.NewMetrics(reg)
-	return service.NewPDFService(f.evRepo, f.respRepo, f.pub, f.cache, f.renderer, f.storage, f.locker, m)
+	return service.NewPDFService(f.evRepo, f.respRepo, f.pub, f.cache, f.renderer, f.storage, f.locker, m, nil)
 }
 
 // seed: persist a parent evento with the given empresa/cliente, plus a
