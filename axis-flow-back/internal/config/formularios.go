@@ -8,8 +8,9 @@ import (
 
 // FormulariosConfig holds runtime settings specific to the Formularios
 // microservice. It is loaded by Load() from environment variables prefixed
-// with FORMULARIOS_ (or WKHTMLTOPDF_* for the PDF binary settings, per the
-// service specification).
+// with FORMULARIOS_ (or WKHTMLTOPDF_* for the legacy PDF binary settings,
+// which are kept for backward compat with PR-1 env files but no longer
+// read by the service — PR-6 uses Gotenberg HTTP instead).
 //
 // Spec reference: docs/services/10_Formularios_Service_Spec/specification.md §Configuración.
 type FormulariosConfig struct {
@@ -25,8 +26,21 @@ type FormulariosConfig struct {
 	// S3 holds the AWS S3 evidence/report bucket configuration.
 	S3 FormulariosS3Config
 
-	// Wkhtmltopdf holds the PDF rendering subprocess configuration.
+	// Wkhtmltopdf holds the LEGACY PDF rendering subprocess
+	// configuration. The struct and env vars are kept for
+	// backward compatibility with the PR-1 env files, but the
+	// service no longer reads them — PR-6 (PDF/S3 Hardening)
+	// uses Gotenberg HTTP. The WkhtmltopdfConfig doc carries a
+	// Deprecated notice.
 	Wkhtmltopdf WkhtmltopdfConfig
+
+	// LockTTL is the TTL for the Redis S3 report lock
+	// (formularios:reporte:lock:<iniciadoID>). The PDF service
+	// acquires the lock at the start of GenerateReporte and
+	// releases it via a safe-release Lua script. PR-6 (6.3) —
+	// replaces the previous hard-coded 300s.
+	// Loaded from FORMULARIOS_LOCK_TTL. Default: 5m.
+	LockTTL time.Duration
 }
 
 // FormulariosS3Config holds the S3 bucket, region, and credentials used
@@ -49,9 +63,15 @@ type FormulariosS3Config struct {
 	UploadTimeout time.Duration
 }
 
-// WkhtmltopdfConfig holds the PDF rendering subprocess configuration.
-// All env var names match the spec verbatim (no FORMULARIOS_ prefix) so
-// operators can reuse the values defined in the spec config table.
+// WkhtmltopdfConfig holds the LEGACY PDF rendering subprocess
+// configuration.
+//
+// Deprecated: PR-6 (PDF/S3 Hardening) replaces wkhtmltopdf with
+// Gotenberg HTTP. The struct and the env vars (WKHTMLTOPDF_PATH,
+// WKHTMLTOPDF_TIMEOUT_SECONDS, WKHTMLTOPDF_MAX_CONCURRENT) are
+// kept for backward compatibility with the PR-1 env files but
+// the service no longer reads them. Operators should migrate to
+// PDF_ENGINE_ENDPOINT / GOTENBERG_ENABLED (see config.PDF).
 type WkhtmltopdfConfig struct {
 	// Path is the absolute path to the wkhtmltopdf binary.
 	// Loaded from WKHTMLTOPDF_PATH. Default: "/usr/bin/wkhtmltopdf".
@@ -84,6 +104,10 @@ func loadFormulariosConfig() FormulariosConfig {
 			TimeoutSeconds: parseIntDefault("WKHTMLTOPDF_TIMEOUT_SECONDS", 10),
 			MaxConcurrent:  parseIntDefault("WKHTMLTOPDF_MAX_CONCURRENT", 2),
 		},
+		// PR-6 (6.3): FORMULARIOS_LOCK_TTL — the Redis SET-NX-with-TTL
+		// lock on formularios:reporte:lock:<iniciadoID>. Default
+		// 5 minutes matches the previous hard-coded value.
+		LockTTL: parseDurationDefault("FORMULARIOS_LOCK_TTL", 5*time.Minute),
 	}
 }
 

@@ -41,6 +41,7 @@ func unsetFormulariosEnv(t *testing.T) {
 		"FORMULARIOS_AWS_ACCESS_KEY_ID",
 		"FORMULARIOS_AWS_SECRET_ACCESS_KEY",
 		"FORMULARIOS_S3_UPLOAD_TIMEOUT",
+		"FORMULARIOS_LOCK_TTL",
 		"WKHTMLTOPDF_PATH",
 		"WKHTMLTOPDF_TIMEOUT_SECONDS",
 		"WKHTMLTOPDF_MAX_CONCURRENT",
@@ -93,6 +94,9 @@ func TestFormulariosConfigDefaults(t *testing.T) {
 	if f.DatabaseURL != "" {
 		t.Errorf("expected default DatabaseURL=\"\", got %q", f.DatabaseURL)
 	}
+	if f.LockTTL != 5*time.Minute {
+		t.Errorf("expected default LockTTL=5m, got %s", f.LockTTL)
+	}
 }
 
 // TestFormulariosConfigExplicit asserts every formularios-specific env var
@@ -109,6 +113,7 @@ func TestFormulariosConfigExplicit(t *testing.T) {
 	os.Setenv("FORMULARIOS_AWS_ACCESS_KEY_ID", "AKIA-FORM")
 	os.Setenv("FORMULARIOS_AWS_SECRET_ACCESS_KEY", "SECRET-FORM")
 	os.Setenv("FORMULARIOS_S3_UPLOAD_TIMEOUT", "45s")
+	os.Setenv("FORMULARIOS_LOCK_TTL", "7m")
 	os.Setenv("WKHTMLTOPDF_PATH", "/opt/wkhtmltopdf/bin/wkhtmltopdf")
 	os.Setenv("WKHTMLTOPDF_TIMEOUT_SECONDS", "30")
 	os.Setenv("WKHTMLTOPDF_MAX_CONCURRENT", "4")
@@ -149,5 +154,8 @@ func TestFormulariosConfigExplicit(t *testing.T) {
 	}
 	if f.Wkhtmltopdf.MaxConcurrent != 4 {
 		t.Errorf("expected Wkhtmltopdf.MaxConcurrent=4, got %d", f.Wkhtmltopdf.MaxConcurrent)
+	}
+	if f.LockTTL != 7*time.Minute {
+		t.Errorf("expected LockTTL=7m, got %s", f.LockTTL)
 	}
 }
