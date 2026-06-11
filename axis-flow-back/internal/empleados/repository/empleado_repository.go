@@ -140,6 +140,40 @@ func (r *EmpleadoRepository) GetByUserID(ctx context.Context, userID uuid.UUID, 
          WHERE usuario_id=$1 AND empresa_id=$2`, userID, empresaID))
 }
 
+// GetNumEmpleadoByUserID returns the num_empleado of the first
+// empleado linked to the given identity user. PR-5 (5.0) seam: the
+// auth service uses this to enrich the access token with the JWT
+// empleado_id claim.
+//
+// Returns:
+//
+//	- (numEmpleado > 0, nil) when an empleado is linked.
+//	- (0, nil)            when no empleado is linked (the auth
+//	                      flow is NOT blocked — see auth_service.EmpleadoLookup docs).
+//	- (0, err)            on genuine lookup failures (DB down, etc.).
+//
+// The lookup is by usuario_id alone (no empresa filter). A user is
+// expected to be linked to at most one empleado; if multiple rows
+// exist the lowest num_empleado wins (deterministic). The
+// production schema enforces the link at create-time via
+// CreateEmpleadoParams.
+func (r *EmpleadoRepository) GetNumEmpleadoByUserID(ctx context.Context, userID uuid.UUID) (int64, error) {
+	var numEmpleado int64
+	err := r.db.QueryRow(ctx,
+		`SELECT num_empleado
+         FROM empleados.empleados_empleado
+         WHERE usuario_id=$1
+         ORDER BY num_empleado ASC
+         LIMIT 1`, userID).Scan(&numEmpleado)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("empleadoRepository.GetNumEmpleadoByUserID: %w", err)
+	}
+	return numEmpleado, nil
+}
+
 // SoftDelete marks the employee as baja and deactivates the linked identity user atomically.
 func (r *EmpleadoRepository) SoftDelete(ctx context.Context, numEmpleado, empresaID int64) error {
 	tx, err := r.db.Begin(ctx)
