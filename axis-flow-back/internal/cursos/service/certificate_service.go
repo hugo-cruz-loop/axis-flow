@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"axis-flow-back/internal/cursos"
-	"axis-flow-back/internal/cursos/gotenberg"
 	"axis-flow-back/internal/cursos/repository"
+	"axis-flow-back/internal/pdf/gotenberg"
 )
 
 // CertificateService defines the certificate generation contract.

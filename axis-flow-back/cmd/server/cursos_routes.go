@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"axis-flow-back/internal/config"
-	"axis-flow-back/internal/cursos/gotenberg"
+	"axis-flow-back/internal/pdf/gotenberg"
 	cursoshandler "axis-flow-back/internal/cursos/handler"
 	cursosmw "axis-flow-back/internal/cursos/middleware"
 	cursosrepo "axis-flow-back/internal/cursos/repository"
