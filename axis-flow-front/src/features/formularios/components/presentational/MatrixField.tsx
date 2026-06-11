@@ -39,7 +39,6 @@ export function MatrixField({
     const first = grid.querySelector<HTMLInputElement>('input[type="radio"]')
     if (first) first.focus()
     // Only on mount — we don't want to steal focus on every re-render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function getCell(rowIdx: number, colIdx: number): HTMLInputElement | null {

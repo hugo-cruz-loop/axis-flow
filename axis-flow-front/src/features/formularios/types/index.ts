@@ -1,21 +1,16 @@
 import type { z } from 'zod'
 import {
   formularioCreateSchema,
-  formularioResponseSchema,
   formularioListResponseSchema,
   preguntaCreateSchema,
-  preguntaResponseSchema,
   eventoCreateSchema,
-  eventoResponseSchema,
-  eventoListResponseSchema,
   eventoIniciadoCreateSchema,
-  eventoIniciadoResponseSchema,
   respuestaCreateSchema,
-  respuestaResponseSchema,
   geolocalizacionSchema,
   matrixConfigSchema,
   choiceConfigSchema,
   cameraConfigSchema,
+  type TipoPreguntaValue,
 } from '../schemas/validation'
 
 // Re-export the schema constant + value type
@@ -32,13 +27,13 @@ export type EventoIniciadoCreate = z.infer<typeof eventoIniciadoCreateSchema>
 export type RespuestaCreate = z.infer<typeof respuestaCreateSchema>
 
 // — Inferred response types —
-export type FormularioResponse = z.infer<typeof formularioResponseSchema>
+export type { FormularioResponse } from '../schemas/validation'
 export type FormularioListResponse = z.infer<typeof formularioListResponseSchema>
-export type PreguntaResponse = z.infer<typeof preguntaResponseSchema>
-export type EventoResponse = z.infer<typeof eventoResponseSchema>
-export type EventoListResponse = z.infer<typeof eventoListResponseSchema>
-export type EventoIniciadoResponse = z.infer<typeof eventoIniciadoResponseSchema>
-export type RespuestaResponse = z.infer<typeof respuestaResponseSchema>
+export type { PreguntaResponse } from '../schemas/validation'
+export type { EventoResponse } from '../schemas/validation'
+export type { EventoListResponse } from '../schemas/validation'
+export type { EventoIniciadoResponse } from '../schemas/validation'
+export type { RespuestaResponse } from '../schemas/validation'
 
 // — Sub-shapes —
 export type Geolocalizacion = z.infer<typeof geolocalizacionSchema>

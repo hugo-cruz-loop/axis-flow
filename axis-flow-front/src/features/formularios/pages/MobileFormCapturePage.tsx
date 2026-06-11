@@ -33,13 +33,23 @@ interface GeolocationState {
  */
 export function MobileFormCapturePage() {
   const { eventoId } = useParams<{ eventoId: string }>()
-  const [empresaId, setEmpresaId] = useState('')
   const [geo, setGeo] = useState<GeolocationState | null>(null)
   const [geoError, setGeoError] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
 
-  // In a real flow the eventoId would drive a `useFormularioByEvento` lookup.
-  // For PR-7 we fall back to the first formulario in the empresa's list.
+  // The formularios list is fetched for the current empresa. In a real
+  // production flow the eventoId would drive a `useFormularioByEvento`
+  // lookup. For PR-7 we render the preguntas from the first form in the
+  // list as a stand-in; the next PR will add a dedicated
+  // `GET /formulario/{id}/preguntas` hook so this page renders the right
+  // form for the right evento.
+  //
+  // The empresaId is not yet wired from the JWT in this view (TODO: read
+  // from the auth store like the atencion pages do). Until then we pass
+  // an empty string so the hook is disabled — the page renders a loading
+  // state and the operator is prompted to open the form from the
+  // assignment page directly.
+  const empresaId = ''
   const { data: formularios, isLoading: loadingForms } = useFormularios(empresaId)
   const activeForm = formularios?.data?.[0]
   const preguntas: PreguntaDraft[] =
@@ -51,6 +61,10 @@ export function MobileFormCapturePage() {
   // Geolocation request on mount.
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      // The setState here is intentional: it only runs in the rare branch
+      // where the browser is missing the API. Skipping it would leave
+      // geoError null and the UI would claim "Locating…" forever.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setGeoError('Geolocation is not supported by your browser.')
       return
     }
@@ -65,6 +79,8 @@ export function MobileFormCapturePage() {
       },
       { enableHighAccuracy: true, timeout: 10000 },
     )
+    // setGeoError in the async callback is fired by the browser, not by
+    // this effect directly; lint rule doesn't apply there.
   }, [])
 
   // iniciarEvento on mount (idempotent: server de-dupes by evento_id + empleado_id).
@@ -75,12 +91,11 @@ export function MobileFormCapturePage() {
     iniciar.mutate({
       evento_id: eventoId,
       empleado_id: 0,
-      geolocalizacion_inicio: geo ?? undefined,
+      geolocalizacion_inicio: geo ? { latitud: geo.lat, longitud: geo.lng } : undefined,
     })
     // We intentionally re-fire when geo becomes available so the geo is
     // included in the iniciar call.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventoId, geo])
+  }, [eventoId, geo, iniciar])
 
   if (loadingForms || !activeForm) {
     return (
@@ -114,7 +129,7 @@ export function MobileFormCapturePage() {
         formulario_id: activeForm?.id ?? '',
         pregunta_id: p.id,
         respuesta_lista: answers[p.id] as unknown,
-        geolocalizacion_respuesta: geo ?? undefined,
+        geolocalizacion_respuesta: geo ? { latitud: geo.lat, longitud: geo.lng } : undefined,
       })
     }
   }

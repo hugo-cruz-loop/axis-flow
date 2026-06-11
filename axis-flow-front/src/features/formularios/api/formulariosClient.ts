@@ -1,15 +1,11 @@
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 import {
-  formularioCreateSchema,
   formularioResponseSchema,
   formularioListResponseSchema,
-  preguntaCreateSchema,
   preguntaResponseSchema,
-  eventoCreateSchema,
   eventoResponseSchema,
   eventoListResponseSchema,
-  eventoIniciadoCreateSchema,
   eventoIniciadoResponseSchema,
   respuestaCreateSchema,
   respuestaResponseSchema,
@@ -141,6 +137,7 @@ export const formulariosClient = {
         throw new Error(
           'Photo upload via mobile camera is not yet enabled on the server. ' +
             'The text portion of your response can still be submitted.',
+          { cause: err },
         )
       }
       throw err

@@ -6,11 +6,12 @@ import type { EventoCreate } from '../types'
 export function FormAssignmentPage() {
   const location = useLocation()
   const empresaId =
-    (location.state as { empresaId?: string } | null)?.empresa_id ??
-    (location.state as { empresaId?: string } | null)?.empresaId ??
+    (location.state as { empresaId?: string; empresa_id?: string } | null)?.empresa_id ??
+    (location.state as { empresaId?: string; empresa_id?: string } | null)?.empresaId ??
     ''
   const clienteId =
-    (location.state as { clienteId?: string } | null)?.clienteId ??
+    (location.state as { clienteId?: string; cliente_id?: string } | null)?.clienteId ??
+    (location.state as { clienteId?: string; cliente_id?: string } | null)?.cliente_id ??
     ''
 
   const { data: formularios, isLoading: loadingForms } = useFormularios(empresaId)

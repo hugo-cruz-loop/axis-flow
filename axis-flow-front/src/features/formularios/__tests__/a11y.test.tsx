@@ -31,7 +31,6 @@ vi.mock('../api/queries', () => ({
 }))
 
 const UUID = '8c2a7d0e-5412-4c22-b5e1-88f6c5bbde93'
-const UUID2 = 'd041e2a8-0e1b-4d43-85f6-cbb18a4a5119'
 const EVENTO_ID = '99999999-aaaa-bbbb-cccc-dddddddddddd'
 
 // Canvas + URL stubs (jsdom)
@@ -57,25 +56,6 @@ beforeAll(() => {
   HTMLCanvasElement.prototype.toDataURL = vi.fn(() => 'data:image/png;base64,FAKE')
 })
 
-function qcWrapper(qc: QueryClient) {
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-  }
-}
-
-function withRouter(initial: string, el: React.ReactNode, routePath: string) {
-  return (
-    <MemoryRouter initialEntries={[initial]}>
-      <Routes>
-        <Route
-          path={routePath}
-          element={el}
-        />
-      </Routes>
-    </MemoryRouter>
-  )
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.useFormularios.mockReturnValue({ data: undefined, isLoading: false })
@@ -98,8 +78,6 @@ beforeEach(() => {
     configurable: true,
   })
 })
-
-// — Tests —
 
 describe('WCAG 2.1 AA — FormBuilderPage', () => {
   function renderBuilder() {

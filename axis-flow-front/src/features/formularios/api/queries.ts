@@ -3,6 +3,7 @@ import { formulariosClient } from './formulariosClient'
 import type {
   FormularioCreate,
   FormularioListResponse,
+  FormularioResponse as CreatedFormularioResponse,
   PreguntaCreate,
   PreguntaResponse,
   EventoCreate,
@@ -53,7 +54,7 @@ export function useFormularios(
 
 export function useCreateFormulario() {
   const qc = useQueryClient()
-  return useMutation<FormularioResponse, Error, FormularioCreate>({
+  return useMutation<CreatedFormularioResponse, Error, FormularioCreate>({
     mutationFn: formulariosClient.createFormulario,
     onSuccess: (_, vars) => {
       void qc.invalidateQueries({ queryKey: formulariosKeys.formularios(vars.empresa_id) })

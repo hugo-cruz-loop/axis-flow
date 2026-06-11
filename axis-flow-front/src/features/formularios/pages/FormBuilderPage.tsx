@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useCreateFormulario, useCreatePregunta } from '../api/queries'
 import { TIPO_PREGUNTA, type FormularioDraft, type PreguntaDraft, type TipoPreguntaValue } from '../types'
@@ -37,26 +37,22 @@ function makeDraft(type: TipoPreguntaValue, orden: number): PreguntaDraft {
 export function FormBuilderPage() {
   const location = useLocation()
   const empresaId =
-    (location.state as { empresaId?: string } | null)?.empresa_id ??
-    (location.state as { empresaId?: string } | null)?.empresaId ??
+    (location.state as { empresaId?: string; empresa_id?: string } | null)?.empresa_id ??
+    (location.state as { empresaId?: string; empresa_id?: string } | null)?.empresaId ??
     ''
 
-  const [draft, setDraft] = useState<FormularioDraft>({
+  // Initialize empresa_id synchronously from location state (no effect needed).
+  const [draft, setDraft] = useState<FormularioDraft>(() => ({
     empresa_id: empresaId,
     nombre: '',
     descripcion: '',
     activo: true,
     preguntas: [],
-  })
+  }))
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
   const [status, setStatus] = useState<{ kind: 'idle' | 'saving' | 'saved' | 'error'; msg?: string }>({
     kind: 'idle',
   })
-
-  // Keep empresa_id in sync if the location state changes after mount.
-  useEffect(() => {
-    setDraft((d) => (d.empresa_id ? d : { ...d, empresa_id: empresaId }))
-  }, [empresaId])
 
   const createForm = useCreateFormulario()
   const createPregunta = useCreatePregunta()

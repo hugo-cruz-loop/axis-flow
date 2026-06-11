@@ -7,7 +7,6 @@ import { SignatureCanvas } from '../components/presentational/SignatureCanvas'
 // BEFORE importing the component so the stub is in place when the component
 // first calls canvas.getContext('2d') in its useEffect.
 const calls: { method: string; args: unknown[] }[] = []
-let pressed = false
 
 beforeAll(() => {
   HTMLCanvasElement.prototype.getContext = vi.fn(function getContextStub() {
@@ -32,7 +31,6 @@ beforeAll(() => {
   // recognizable marker so we can assert the component actually serializes
   // the canvas when pointerup fires.
   HTMLCanvasElement.prototype.toDataURL = vi.fn(function toDataURLStub() {
-    pressed = true
     return 'data:image/png;base64,FAKE_SIGNATURE'
   })
 })
