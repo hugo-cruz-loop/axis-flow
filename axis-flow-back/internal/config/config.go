@@ -33,6 +33,8 @@ type Config struct {
 	PDF PDFConfig
 	// Formularios holds configuration for the Formularios microservice.
 	Formularios FormulariosConfig
+	// Report holds configuration for the ReportBro report-generation service.
+	Report ReportConfig
 }
 
 // ServerConfig contains HTTP server settings.
@@ -395,6 +397,11 @@ func Load() (*Config, error) {
 	// Loaded after global validation so a missing FORMULARIOS_AWS_* key
 	// never masks a missing global required var.
 	cfg.Formularios = loadFormulariosConfig()
+
+	// ReportBro service config (PR-1 of 14_ReportBro_Service_Spec).
+	// REPORT_SIGNING_KEY is required; missing value appends to errs so the
+	// server refuses to start. The key value is NEVER logged.
+	cfg.Report = loadReportConfig(&errs)
 
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("configuration errors: %v", errs)
