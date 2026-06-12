@@ -78,6 +78,15 @@ type FCMClient interface {
 	// jitter; when the budget is exhausted, the last error is
 	// returned wrapped with %w.
 	Send(ctx context.Context, deviceToken string, payload NotificationPayload) (messageID string, err error)
+	// Ping performs a lightweight, non-network health check on the
+	// client. It verifies the underlying Firebase App is initialised
+	// and the credentials are usable WITHOUT opening a network
+	// connection. A full FCM round-trip is intentionally NOT used
+	// here because the readiness endpoint is called frequently and a
+	// remote round-trip would defeat its purpose. Returns nil on a
+	// healthy client; a non-nil error indicates the client is
+	// unusable (credentials invalid, App not initialised, etc.).
+	Ping(ctx context.Context) error
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +189,24 @@ func NewFCMClient(ctx context.Context, credentialsJSON []byte) (FCMClient, error
 
 // setLogger attaches a structured logger. Optional; nil-safe.
 func (c *firebaseFCMClient) setLogger(l *Logger) { c.logger = l }
+
+// Ping performs the lightweight readiness check documented on the
+// FCMClient interface. It verifies the underlying firebase.App and
+// messaging.Client are non-nil without opening a network
+// connection. The check is cheap and safe to call from the
+// readiness probe on every probe tick.
+func (c *firebaseFCMClient) Ping(ctx context.Context) error {
+	if c == nil {
+		return fmt.Errorf("fcm_client.Ping: %w: client is nil", ErrFCMInvalidCredentials)
+	}
+	if c.app == nil {
+		return fmt.Errorf("fcm_client.Ping: %w: firebase app is nil", ErrFCMInvalidCredentials)
+	}
+	if c.client == nil {
+		return fmt.Errorf("fcm_client.Ping: %w: messaging client is nil", ErrFCMInvalidCredentials)
+	}
+	return nil
+}
 
 // Send dispatches the payload with up to maxAttempts retries on
 // transient errors. Permanent errors are surfaced immediately without
@@ -361,6 +388,9 @@ type MockFCMClient struct {
 	// message_id, nil error" behaviour. It receives the same arguments
 	// as Send.
 	SendFunc func(ctx context.Context, deviceToken string, payload NotificationPayload) (string, error)
+	// PingFunc, when non-nil, replaces the default "return nil" Ping
+	// behaviour. Used by tests that exercise the readiness down path.
+	PingFunc func(ctx context.Context) error
 }
 
 // NewMockFCMClient returns a fresh MockFCMClient with SendFunc unset
@@ -379,4 +409,14 @@ func (m *MockFCMClient) Send(ctx context.Context, deviceToken string, payload No
 		return m.SendFunc(ctx, deviceToken, payload)
 	}
 	return "", nil
+}
+
+// Ping records a Ping call and returns nil. The mock is always
+// "healthy" by default; tests that need to exercise the down path
+// can set PingFunc on the mock.
+func (m *MockFCMClient) Ping(ctx context.Context) error {
+	if m.PingFunc != nil {
+		return m.PingFunc(ctx)
+	}
+	return nil
 }
