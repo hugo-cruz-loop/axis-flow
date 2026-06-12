@@ -230,21 +230,26 @@ func wireScheduler(ctx context.Context, r chi.Router, dbPool *pgxpool.Pool, redi
 	// "sincronizacion_solicitada" job is wired separately
 	// below because it has a special handler — the consumer's
 	// closure). The constructor signatures vary by job; we
-	// build them inline so the wiring is readable.
+	// build them inline so the wiring is readable. The two
+	// business jobs (notificaciones + inactiva_empleado)
+	// receive typed repository / factory adapters (PR 5B-ii)
+	// instead of the raw pgxpool.Pool.
 	notifJob, njerr := jobs.NewNotificacionesEnTiempoRealJob(jobs.NotificacionesJobDeps{
-		DB:     dbPool,
+		Shifts: jobs.NewPgShiftRepository(dbPool),
 		FCM:    fcm,
 		Logger: schedLogger,
 	})
 	if njerr != nil {
 		return nil, fmt.Errorf("wireScheduler: build notificaciones job: %w", njerr)
 	}
+	employeeRepo := jobs.NewPgEmployeeRepository(dbPool)
 	inactivaJob, ijerr := jobs.NewInactivaEmpleadoJob(jobs.InactivaEmpleadoJobDeps{
-		DB:              dbPool,
+		Emps:           employeeRepo,
+		TxFactory:      jobs.NewPgEmployeeTxFactory(dbPool, employeeRepo),
 		Parametrizacion: parametrizacionClient,
-		Outbox:          jobs.NewNoopOutboxWriter(),
-		Logger:          schedLogger,
-		Metrics:         metrics,
+		Outbox:         jobs.NewNoopOutboxWriter(),
+		Logger:         schedLogger,
+		Metrics:        metrics,
 	})
 	if ijerr != nil {
 		return nil, fmt.Errorf("wireScheduler: build inactiva_empleado job: %w", ijerr)
