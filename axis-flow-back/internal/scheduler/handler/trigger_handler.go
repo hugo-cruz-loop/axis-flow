@@ -53,14 +53,14 @@ import (
 // TriggerHandlerDeps groups the collaborators TriggerHandler needs.
 type TriggerHandlerDeps struct {
 	JobRepo repository.JobRepository
-	Runner  *service.CronRunner
+	Runner  Runner
 	Logger  *service.Logger
 }
 
 // TriggerHandler is the HTTP handler for POST /scheduler/jobs/{id}/trigger.
 type TriggerHandler struct {
 	jobRepo repository.JobRepository
-	runner  *service.CronRunner
+	runner  Runner
 	logger  *service.Logger
 }
 

@@ -56,7 +56,7 @@ const (
 // can supply fakes for any of these without touching the constructor.
 type JobsHandlerDeps struct {
 	JobRepo repository.JobRepository
-	Runner  *service.CronRunner
+	Runner  Runner
 	Logger  *service.Logger
 }
 
@@ -65,7 +65,7 @@ type JobsHandlerDeps struct {
 // it holds is itself safe for concurrent use.
 type JobsHandler struct {
 	jobRepo repository.JobRepository
-	runner  *service.CronRunner
+	runner  Runner
 	logger  *service.Logger
 }
 
