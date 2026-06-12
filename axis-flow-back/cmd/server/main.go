@@ -24,6 +24,11 @@ import (
 	reportCache "axis-flow-back/internal/report/cache"
 	reportGenerator "axis-flow-back/internal/report/generator"
 	reportHandler "axis-flow-back/internal/report/handler"
+	"axis-flow-back/internal/reports"
+	reportsevent "axis-flow-back/internal/reports/events"
+	reportshandler "axis-flow-back/internal/reports/handler"
+	reportsrepo "axis-flow-back/internal/reports/repository"
+	reportsservice "axis-flow-back/internal/reports/service"
 	stdrepository "axis-flow-back/internal/repository"
 	"axis-flow-back/internal/service"
 	"axis-flow-back/internal/telemetry"
@@ -764,6 +769,24 @@ func main() {
 	repTTL := time.Duration(cfg.Report.TokenTTLSeconds) * time.Second
 	repHandler := reportHandler.NewReportHandler(repCache, repPDFGen, repXLSXGen, cfg.Report.SigningKey, repTTL)
 	registerReportRoutes(r, repHandler, authSvc)
+
+	// ── Reports module ────────────────────────────────────────────────────────
+	// Wiring order: config → repos/cache → services → event pub/consumer → handler → routes.
+	// empresa_id is ALWAYS sourced from JWT claims inside the handler; it is
+	// never read from query parameters.
+	reportsCfg := reports.ConfigFromEnv()
+	geoCache := reportsrepo.NewRedisGeocodingCache(redisClient)
+	geoRepo := reportsrepo.NewPgGeocodingRepo(dbPool)
+	evidRepo := reportsrepo.NewPgEvidenciasRepo(dbPool, reportsCfg.AWSS3CustomDomain)
+	asistRepo := reportsrepo.NewPgAsistenciasRepo(dbPool)
+	statsRepo := reportsrepo.NewPgStatsRepo(dbPool)
+	geoSvc := reportsservice.NewGeocodingService(geoCache, geoRepo, reportsCfg)
+	reportsSvc := reportsservice.NewReportsService(evidRepo, asistRepo, statsRepo)
+	reportsPublisher := reportsevent.NewRedisEventPublisher(redisClient)
+	empresaConsumer := reportsevent.NewEmpresaDeBajaConsumer(redisClient, geoRepo, geoCache, reportsPublisher, slog.Default())
+	go empresaConsumer.Start(ctx)
+	reportsHandler := reportshandler.NewReportsHandler(reportsSvc, geoSvc, reportsPublisher)
+	registerReportsRoutes(r, reportsHandler, middleware.JWTAuth(authSvc))
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	// Wrap router with OTel HTTP instrumentation.
