@@ -69,29 +69,86 @@ type PreShiftAlertEvent struct {
 }
 
 // ---------------------------------------------------------------------------
+// EmpleadoInactivadoEvent — the payload described in the Scheduler
+// Service spec section "Eventos > Publica > EmpleadoInactivadoAutomaticamente".
+// ---------------------------------------------------------------------------
+
+// EmpleadoInactivadoEvent is the JSON payload exchanged when the
+// daily `inactiva_empleado` job deactivates an employee because
+// their consecutive unjustified inasistencias reached the
+// per-company threshold. Field names match the spec verbatim:
+//
+//	empleado_id           bigint
+//	empresa_id            bigint
+//	faltas_consecutivas   integer
+//	motivo                string   ("inasistencias_consecutivas")
+//	timestamp             RFC3339 timestamp
+//
+// The event is delivered at-least-once via the scheduler outbox
+// (delivery mode: "Outbox" in the spec table). For now the
+// scheduler writes the payload into the outbox row inside the same
+// transaction as the empleado status update; an outbox poller (not
+// part of this file) drains the outbox and forwards the payload to
+// Redis Streams / Notificaciones service. The
+// PublishEmpleadoInactivado method on the interface is reserved for
+// future direct-publishing paths that may bypass the outbox — the
+// default noop implementation logs and returns nil so callers in
+// PR 3B-ii (this PR) can wire the symmetry without forcing the
+// real publisher to be in place.
+type EmpleadoInactivadoEvent struct {
+	// EmpleadoID is the business identifier of the deactivated
+	// employee. It is the FK the Notificaciones service uses to
+	// fan the alert out to the HR dashboard.
+	EmpleadoID int64
+	// EmpresaID is the company tenant the employee belonged to.
+	// It is used by the Notificaciones service to scope the
+	// tenant-aware notification fan-out.
+	EmpresaID int64
+	// FaltasConsecutivas is the count of consecutive unjustified
+	// inasistencias that triggered the deactivation. The value
+	// equals the per-company threshold read from the
+	// Parametrizacion Service.
+	FaltasConsecutivas int
+	// Motivo is a short human-readable tag describing the reason
+	// for the deactivation. Current canonical value:
+	// "inasistencias_consecutivas". The field is free-form to
+	// accommodate future rule changes (e.g. "faltas_justificadas_rechazadas").
+	Motivo string
+	// Timestamp is the wall-clock instant the deactivation was
+	// committed to the database. The value is captured in UTC.
+	Timestamp time.Time
+}
+
+// ---------------------------------------------------------------------------
 // EventPublisher — the integration boundary.
 // ---------------------------------------------------------------------------
 
 // EventPublisher is the narrow contract the Scheduler jobs use to
 // emit integration events. Each method MUST be safe for concurrent
 // invocation — the inactiva_empleado job (PR 3B-ii) and the
-// notificaciones job (this PR) may both call PublishPreShiftAlert
-// from different goroutines when the cron runner schedules them on
+// notificaciones job (this PR) may both call the publisher from
+// different goroutines when the cron runner schedules them on
 // overlapping ticks.
 //
 // Implementations are expected to be best-effort from the Scheduler
 // side: a publisher error is logged inside the publisher and
 // surfaced to the caller so the job can decide whether to retry,
-// fail the run, or move on. The job treats the alert dispatch as the
-// primary success criterion (the Notificaciones write is a
-// correlation log, not the source of truth for the user-facing
-// notification).
+// fail the run, or move on.
 type EventPublisher interface {
 	// PublishPreShiftAlert emits a PreShiftAlertaProgramada event
 	// for the given alert. Returns a non-nil error only for
 	// unrecoverable transport failures; the implementation is
 	// expected to retry transient errors itself.
 	PublishPreShiftAlert(ctx context.Context, evt PreShiftAlertEvent) error
+	// PublishEmpleadoInactivado emits an EmpleadoInactivadoAutomaticamente
+	// event for the given deactivation. The current implementation
+	// path (PR 3B-ii) writes the payload to the outbox instead of
+	// calling this method directly; the method is kept on the
+	// interface so future code (e.g. a synchronous admin trigger
+	// that needs an at-most-once publish) can call it without
+	// changing the job's dependency surface. Returns a non-nil
+	// error only for unrecoverable transport failures.
+	PublishEmpleadoInactivado(ctx context.Context, evt EmpleadoInactivadoEvent) error
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +162,11 @@ type EventPublisher interface {
 // debug level — production observability for the alert will come
 // from the existing scheduler_job_duration_seconds / per-shift
 // summary log, not from this sink — and returns nil.
+//
+// The real publisher will be wired in PR 4 (REST + wiring layer),
+// where main.go replaces the noop with the Notificaciones-service-
+// backed implementation. PR 3B-ii (inactiva_empleado) calls into the
+// publisher only through the interface so the swap is transparent.
 //
 // Tests and wiring code that have not yet been updated can rely on
 // the noop to keep the system observable: the alert has already been
@@ -138,6 +200,30 @@ func (n *NoopEventPublisher) PublishPreShiftAlert(_ context.Context, evt PreShif
 		slog.Int64("empleado_id", evt.EmpleadoID),
 		slog.String("fcm_token_prefix", prefix),
 		slog.String("tipo_evento", evt.TipoEvento),
+		slog.Time("timestamp", evt.Timestamp),
+	)
+	return nil
+}
+
+// PublishEmpleadoInactivado logs the deactivation at info level and
+// returns nil. The current job path (PR 3B-ii) writes the payload to
+// the outbox row inside the same transaction as the empleado status
+// update and does not call this method — the method exists on the
+// interface for future direct-publishing callers (e.g. an admin
+// trigger that bypasses the outbox for at-most-once delivery). The
+// info-level line is intentionally lighter than a real publisher
+// would emit: when the real publisher lands in PR 4 the per-event
+// log will move to that implementation and this noop will become a
+// no-op logger (nil-return only).
+func (n *NoopEventPublisher) PublishEmpleadoInactivado(_ context.Context, evt EmpleadoInactivadoEvent) error {
+	if n == nil || n.Logger == nil {
+		return nil
+	}
+	n.Logger.Info("noop event publisher: empleado inactivado event",
+		slog.Int64("empleado_id", evt.EmpleadoID),
+		slog.Int64("empresa_id", evt.EmpresaID),
+		slog.Int("faltas_consecutivas", evt.FaltasConsecutivas),
+		slog.String("motivo", evt.Motivo),
 		slog.Time("timestamp", evt.Timestamp),
 	)
 	return nil
