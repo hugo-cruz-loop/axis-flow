@@ -113,7 +113,7 @@ func TestRunReport_PDF_200(t *testing.T) {
 		Data struct {
 			Key         string `json:"key"`
 			DownloadURL string `json:"download_url"`
-			ExpiresAt   string `json:"expires_at"`
+			ExpiresAt   string `json:"expiresAt"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {

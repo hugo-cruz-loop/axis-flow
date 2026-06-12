@@ -50,13 +50,9 @@ export function ReportPreviewer({ result, format }: ReportPreviewerProps) {
       ) : (
         <a
           href={absoluteUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+          download="report.xlsx"
+          className="inline-flex items-center px-5 py-2.5 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500"
           aria-label="Download Excel report"
-          onClick={(e) => {
-            e.preventDefault()
-            window.open(absoluteUrl, '_blank', 'noopener,noreferrer')
-          }}
         >
           Download Excel Report
         </a>

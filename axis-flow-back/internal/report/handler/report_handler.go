@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -72,7 +73,7 @@ type runReportResponse struct {
 	Data struct {
 		Key         string `json:"key"`
 		DownloadURL string `json:"download_url"`
-		ExpiresAt   string `json:"expires_at"`
+		ExpiresAt   string `json:"expiresAt"`
 	} `json:"data"`
 }
 
@@ -177,12 +178,14 @@ func (h *ReportHandler) DownloadReport(w http.ResponseWriter, r *http.Request) {
 	// Expiry check (before HMAC to short-circuit early).
 	expiresInt, err := strconv.ParseInt(expires, 10, 64)
 	if err != nil || time.Now().Unix() > expiresInt {
+		log.Printf("level=warn msg=\"forbidden download attempt\" key=%s reason=expired", key)
 		writeError(w, http.StatusForbidden, "FORBIDDEN")
 		return
 	}
 
 	// Signature verification — uses constant-time comparison inside signing.Verify.
 	if !signing.Verify(key, expires, uid, sig, h.signingKey) {
+		log.Printf("level=warn msg=\"forbidden download attempt\" key=%s reason=invalid_signature", key)
 		writeError(w, http.StatusForbidden, "FORBIDDEN")
 		return
 	}
