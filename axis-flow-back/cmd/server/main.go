@@ -16,12 +16,15 @@ import (
 	asignacionStorage "axis-flow-back/internal/asignacion/storage"
 	"axis-flow-back/internal/catalogos/repository"
 	"axis-flow-back/internal/config"
+	"axis-flow-back/internal/dashboardsdata"
 	empleadosRepo "axis-flow-back/internal/empleados/repository"
 	"axis-flow-back/internal/handler"
 	"axis-flow-back/internal/logging"
 	"axis-flow-back/internal/middleware"
+	reportCache "axis-flow-back/internal/report/cache"
+	reportGenerator "axis-flow-back/internal/report/generator"
+	reportHandler "axis-flow-back/internal/report/handler"
 	stdrepository "axis-flow-back/internal/repository"
-	"axis-flow-back/internal/dashboardsdata"
 	"axis-flow-back/internal/service"
 	"axis-flow-back/internal/telemetry"
 
@@ -750,6 +753,17 @@ func main() {
 			slog.Error("scheduler shutdown error", slog.String("error", err.Error()))
 		}
 	}()
+
+	// ── ReportBro module ─────────────────────────────────────────────────────
+	// Generators are stateless structs; the cache wraps the shared Redis client.
+	// The signing key is read from cfg.Report.SigningKey (required at startup).
+	// The TTL is derived from cfg.Report.TokenTTLSeconds (default 180 s).
+	repCache := reportCache.NewRedisReportCache(redisClient)
+	repPDFGen := reportGenerator.NewPDFGenerator()
+	repXLSXGen := reportGenerator.NewXLSXGenerator()
+	repTTL := time.Duration(cfg.Report.TokenTTLSeconds) * time.Second
+	repHandler := reportHandler.NewReportHandler(repCache, repPDFGen, repXLSXGen, cfg.Report.SigningKey, repTTL)
+	registerReportRoutes(r, repHandler, authSvc)
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	// Wrap router with OTel HTTP instrumentation.
