@@ -38,6 +38,17 @@ type Config struct {
 	LogFormat string
 	// SchedulerLockTTLSec is the TTL for Redis distributed job locks.
 	SchedulerLockTTLSec int
+	// M2MSigningKey is the shared HMAC secret used to sign M2M JWTs
+	// minted by the scheduler. It must be at least 32 bytes; the spec
+	// recommends 64 random bytes. Never log.
+	M2MSigningKey string
+	// M2MKeyID is an optional kid header value emitted with every
+	// M2M token. Receiving services that resolve keys by id use it to
+	// pick the right secret. Empty is allowed; the header is omitted.
+	M2MKeyID string
+	// M2MAudience is the aud claim placed on every M2M token. Defaults
+	// to "axis-flow-internal" when left blank in the environment.
+	M2MAudience string
 }
 
 // SchedulerLockTTL returns the configured lock TTL as a time.Duration.
@@ -61,6 +72,9 @@ func LoadConfig() (Config, error) {
 		AWSRegion:                 getenvDefault("AWS_REGION", "us-east-1"),
 		LogFormat:                 getenvDefault("LOG_FORMAT", "logfmt"),
 		SchedulerLockTTLSec:       parseIntDefault("SCHEDULER_LOCK_TTL_SEC", 600),
+		M2MSigningKey:             os.Getenv("SCHEDULER_M2M_SIGNING_KEY"),
+		M2MKeyID:                  os.Getenv("SCHEDULER_M2M_KEY_ID"),
+		M2MAudience:               getenvDefault("SCHEDULER_M2M_AUDIENCE", "axis-flow-internal"),
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -94,6 +108,12 @@ func (c Config) Validate() error {
 	}
 	if c.SchedulerLockTTLSec <= 0 {
 		return fmt.Errorf("scheduler: SCHEDULER_LOCK_TTL_SEC must be > 0 (got %d)", c.SchedulerLockTTLSec)
+	}
+	if c.M2MSigningKey == "" {
+		return fmt.Errorf("scheduler: SCHEDULER_M2M_SIGNING_KEY is required")
+	}
+	if len(c.M2MSigningKey) < 32 {
+		return fmt.Errorf("scheduler: SCHEDULER_M2M_SIGNING_KEY must be at least 32 bytes (got %d)", len(c.M2MSigningKey))
 	}
 	switch c.LogFormat {
 	case "logfmt", "json":
