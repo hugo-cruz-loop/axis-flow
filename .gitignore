@@ -48,6 +48,27 @@ coverage/
 .env
 .env.*
 
+# --- Secrets (operator-managed, never committed) ---
+# Private keys (TLS, JWT signing, M2M HMAC, etc.)
+*.key
+*.pem
+*.p12
+# Firebase / Google Cloud service-account JSON. The
+# FIREBASE_CREDENTIALS_JSON env var carries the content
+# at runtime; the file form must never enter the repo.
+firebase*.json
+*firebase*.json
+gcp-*.json
+gcp-*-credentials.json
+# Operator-managed secret directories. The Scheduler
+# compose (axis-flow-back/deploy/scheduler.docker-compose.yml)
+# references ./secrets/firebase.creds.env and
+# ./secrets/scheduler_m2m.env from the deploy/ directory.
+secrets/
+**/secrets/
+deploy/secrets/
+**/deploy/secrets/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

@@ -1,0 +1,194 @@
+# =============================================================
+# Scheduler Service — docker-compose service definition
+#
+# PR:         6 (Docker + Seed) of 16_Scheduler_Service_Spec
+# Spec:       docs/services/16_Scheduler_Service_Spec/specification.md
+#             — "Configuración > Variables de Entorno"  (env list)
+#             — "Configuración > Perfil de Recursos"   (limits)
+#             — "Seguridad > Firebase Credentials Protection"
+#
+# This file is a SINGLE-SERVICE compose manifest. It is meant
+# to be INCLUDED from a project-level compose (the one that
+# also brings up PostgreSQL, Redis, and any other shared
+# infra) via `include:` or merged via the `-f` flag, e.g.
+#
+#   docker compose \
+#     -f docker-compose.yml            \  # project-level: postgres, redis, …
+#     -f axis-flow-back/deploy/scheduler.docker-compose.yml \
+#     up -d scheduler-service
+#
+# The scheduler-service is therefore declared WITHOUT its
+# postgres / redis / networks blocks — those belong to the
+# project-level compose and are expected to exist on the
+# shared `axis-flow` default network.
+#
+# ─── Operator-managed files (NOT in the repo) ─────────────────────────────
+# Two secret files are referenced below; both are operator
+# managed and must NEVER be committed. Confirm the project
+# root .gitignore covers them (see top-level .gitignore):
+#
+#   ./secrets/firebase.creds.env
+#     Single-line KEY=VALUE file. Value is the entire FCM
+#     service-account JSON payload, single-quoted so Compose
+#     preserves the JSON quoting, e.g.
+#
+#       FIREBASE_CREDENTIALS_JSON='{"type":"service_account","project_id":"…",…}'
+#
+#   ./secrets/scheduler_m2m.env
+#     Single-line KEY=VALUE file. Value is the M2M signing
+#     secret (≥ 32 bytes, 64 random bytes recommended), e.g.
+#
+#       SCHEDULER_M2M_SIGNING_KEY=0123…ef (64 hex chars)
+#
+# Rotating either secret is Runbook 2 in the spec; the
+# recipe is in axis-flow-back/deploy/RUNBOOKS.md.
+#
+# ─── Resource limits ───────────────────────────────────────────────────────
+# Per the spec's "Configuración > Perfil de Recursos" section:
+#   * 0.5 vCPU, 128 MiB RAM (limits)   — the hard ceiling.
+#   * 0.1 vCPU,  64 MiB RAM (reservations) — the floor.
+# The values are written as strings so the Compose parser
+# does not interpret them as floats; the units are the
+# Docker convention (cpus: '0.5' = half a core, memory: 128M
+# = 128 MiB). deploy.resources is honored by `docker compose`
+# v2.10+ and by `docker stack deploy`; it is silently ignored
+# by `docker-compose` v1.x (the legacy v1 binary is
+# end-of-life and not used in this project).
+# =============================================================
+
+services:
+  scheduler-service:
+    # ─── Build ────────────────────────────────────────────────────────────
+    # Build context is the parent of this deploy/ directory
+    # (the axis-flow-back module root) so the Dockerfile can
+    # COPY go.mod, go.sum, internal/, cmd/, etc. The
+    # Dockerfile itself lives next to this compose file and
+    # uses a multi-stage Go 1.25 build → distroless static.
+    build:
+      context: ..
+      dockerfile: deploy/scheduler.Dockerfile
+    image: axis-flow-back:scheduler
+    container_name: axis-flow-scheduler
+    restart: unless-stopped
+
+    # ─── Networking ───────────────────────────────────────────────────────
+    # The default port is 8080 (matches
+    # internal/config/config.go: cfg.Server.Port default).
+    # The host port can be remapped with `ports: 9090:8080`
+    # at the project level; the container-internal 8080 must
+    # stay aligned with EXPOSE in the Dockerfile.
+    ports:
+      - "8080:8080"
+
+    # ─── Environment ──────────────────────────────────────────────────────
+    # The spec section "Configuración > Variables de Entorno"
+    # is reproduced here with the same variable names. Vars
+    # without a safe default in the spec use
+    # `${VAR:?message}` so the compose parser fails fast at
+    # `docker compose config` time when the operator has not
+    # supplied a value.
+    #
+    # Two env_file entries feed the SECRET values:
+    #   * firebase.creds.env    → FIREBASE_CREDENTIALS_JSON
+    #   * scheduler_m2m.env     → SCHEDULER_M2M_SIGNING_KEY
+    # The files live under ./secrets/ (relative to this
+    # compose file's directory). They are NOT created by this
+    # PR — see the operator-managed files block at the top
+    # of this file for the file format and rotation recipe.
+    env_file:
+      - path: ./secrets/firebase.creds.env
+        required: true   # Compose v2.24+; document and move on
+                         # if the installed Compose version is
+                         # older — the file is required in
+                         # every supported env (prod, staging).
+      - path: ./secrets/scheduler_m2m.env
+        required: true
+    environment:
+      # ── App ──
+      ENV: ${ENV:-production}
+      LOG_FORMAT: ${LOG_FORMAT:-logfmt}
+
+      # ── Database ──
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required (postgres://user:pass@host:port/db?sslmode=disable)}
+
+      # ── Redis (locks) ──
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
+
+      # ── Parametrizacion internal client ──
+      PARAMETRIZACION_SERVICE_URL: ${PARAMETRIZACION_SERVICE_URL:-http://parametrizacion-service:8080}
+
+      # ── AWS SQS consumer ──
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL:?SQS_QUEUE_URL is required (https://sqs.<region>.amazonaws.com/<account>/<queue>)}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+
+      # ── Lock TTL (seconds) ──
+      SCHEDULER_LOCK_TTL_SEC: ${SCHEDULER_LOCK_TTL_SEC:-600}
+
+      # ── M2M (signing key lives in the env_file; the kid
+      #    and audience have safe defaults) ──
+      SCHEDULER_M2M_KEY_ID: ${SCHEDULER_M2M_KEY_ID:-}
+      SCHEDULER_M2M_AUDIENCE: ${SCHEDULER_M2M_AUDIENCE:-axis-flow-internal}
+
+      # ── Observability ──
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+    # ─── Dependency ordering ──────────────────────────────────────────────
+    # depends_on only waits for the container to START, not
+    # for the service to be ready. The scheduler's
+    # /health/ready endpoint pings PostgreSQL and Redis on
+    # every probe, so readiness is enforced by the
+    # orchestrator's healthcheck policy, not by depends_on.
+    depends_on:
+      - postgres
+      - redis
+
+    # ─── Resource profile ────────────────────────────────────────────────
+    # Hard ceiling per the spec. Going above 0.5 vCPU or
+    # 128 MiB is a spec violation and an alert trigger.
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+    # ─── Volumes ─────────────────────────────────────────────────────────
+    # None. The binary only talks to PostgreSQL, Redis,
+    # Parametrizacion (HTTP), and AWS SQS over the network.
+    # The FCM credentials and M2M signing key are read from
+    # environment variables (env_file above), not files on
+    # disk. No migrations directory is mounted at runtime —
+    # the schema and the seed migration (V15, V16) are
+    # applied by the database bootstrap step in the
+    # project-level compose, NOT by the scheduler container.
+
+    # ─── Health (orchestrator-driven) ────────────────────────────────────
+    # The binary exposes:
+    #   * GET /health/live   — liveness, always 200 if the
+    #                           process is up.
+    #   * GET /health/ready  — readiness, pings PostgreSQL +
+    #                           Redis; returns 503 on failure.
+    #   * GET /metrics       — Prometheus scrape.
+    # The HEALTHCHECK directive is omitted in the Dockerfile
+    # (distroless has no shell) — see the Dockerfile header
+    # for the rationale. Operators that want a Compose-level
+    # healthcheck can add one here:
+    #
+    #   healthcheck:
+    #     test:    ["CMD", "/usr/local/bin/axis-flow-back", "--healthcheck"]
+    #     interval: 30s
+    #     timeout:  3s
+    #     retries:  3
+    #     start_period: 10s
+    #
+    # The `--healthcheck` subcommand is not implemented in
+    # the binary today; adding it is a future task (would
+    # require a production code change and is out of scope
+    # for PR 6). Until then, the orchestrator should drive
+    # readiness off the HTTP /health/ready endpoint with a
+    # small sidecar or a `wget`-based probe from the host
+    # network (not from inside the distroless container).

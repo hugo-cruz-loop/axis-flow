@@ -732,6 +732,24 @@ func main() {
 	// Start background event consumer for cache eviction
 	dashboardsConsumer := dashboardsdata.NewEventsConsumer(redisClient, dashboardsCache, dbPool)
 	dashboardsConsumer.Start(ctx)
+	// ── Scheduler Service (PR 4B) ────────────────────────────────────────────
+	// Build the scheduler runtime (cron runner, jobs, sync consumer) and
+	// mount its REST surface (admin endpoints + /health/* + /metrics) on
+	// the same chi router. The construction is in
+	// scheduler_wiring.go / scheduler_routes.go; this single call is the
+	// integration point in the main HTTP lifecycle.
+	schedHandles, schedErr := wireScheduler(ctx, r, dbPool, redisClient)
+	if schedErr != nil {
+		slog.Error("failed to wire scheduler", slog.String("error", schedErr.Error()))
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := schedHandles.Stop(shutdownCtx); err != nil {
+			slog.Error("scheduler shutdown error", slog.String("error", err.Error()))
+		}
+	}()
 
 	// ── HTTP Server ───────────────────────────────────────────────────────────
 	// Wrap router with OTel HTTP instrumentation.
