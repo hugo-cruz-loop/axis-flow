@@ -41,9 +41,6 @@ import (
 	"axis-flow-back/internal/scheduler/service"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ---------------------------------------------------------------------------
@@ -107,30 +104,15 @@ var (
 )
 
 // ---------------------------------------------------------------------------
-// DB abstracts the pgx surface used by the job. The concrete
-// implementation is the *pgxpool.Pool adapter; tests may inject a
-// transaction-bound runner or a fake. Defined as a local interface
-// so the job's surface stays minimal — the runner only needs
-// Query/QueryRow.
+// DB abstraction — replaced by ShiftRepository (PR 5B-ii). The
+// `jobDB` interface and the `pgxPoolAdapter` lived here from
+// PR 3B-i; they are removed because the job now talks to
+// PostgreSQL exclusively through the typed ShiftRepository
+// contract. The pgx implementation is in
+// `shift_repository_pg.go` and the wiring in
+// `cmd/server/scheduler_wiring.go` constructs the repo and
+// passes it to the constructor.
 // ---------------------------------------------------------------------------
-
-type jobDB interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-}
-
-type pgxPoolAdapter struct{ pool *pgxpool.Pool }
-
-func (a *pgxPoolAdapter) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	return a.pool.QueryRow(ctx, sql, args...)
-}
-func (a *pgxPoolAdapter) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	return a.pool.Query(ctx, sql, args...)
-}
-func (a *pgxPoolAdapter) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	return a.pool.Exec(ctx, sql, args...)
-}
 
 // ---------------------------------------------------------------------------
 // Configuration knobs.
@@ -141,13 +123,13 @@ func (a *pgxPoolAdapter) Exec(ctx context.Context, sql string, args ...any) (pgc
 // positional constructor args) keeps the call site readable as the
 // dependency list grows. The CronRunner already provides a
 // *BaseJob at runtime, but the job retains direct handles to the
-// ones its Run method uses (db, fcm, eventPublisher) so the type
+// ones its Run method uses (shifts, fcm, eventPublisher) so the type
 // remains self-contained and testable in isolation.
 type NotificacionesJobDeps struct {
-	// DB is the PostgreSQL pool used to read the upcoming-shifts
-	// window and to deactivate devices that return
-	// ErrFCMPermanentFailure. Required.
-	DB *pgxpool.Pool
+	// Shifts is the repository the job uses to read the
+	// upcoming-shifts window and to deactivate devices that
+	// return ErrFCMPermanentFailure. Required.
+	Shifts ShiftRepository
 	// FCM is the FCM client used to dispatch push notifications.
 	// Required.
 	FCM service.FCMClient
@@ -198,9 +180,9 @@ type NotificacionesEnTiempoRealJob struct {
 	// its work.
 	deps NotificacionesJobDeps
 
-	// db is the pgx adapter. Built from deps.DB at construction
-	// time.
-	db jobDB
+	// shifts is the data-access surface. Built from deps.Shifts
+	// at construction time.
+	shifts ShiftRepository
 
 	// publisher is the event publisher. Defaults to a noop; can
 	// be replaced at any time via SetEventPublisher. Guarded by
@@ -244,8 +226,8 @@ type dedupKey struct {
 // nil deps field returns an error so the wiring layer fails fast
 // at startup rather than at the first cron tick.
 func NewNotificacionesEnTiempoRealJob(deps NotificacionesJobDeps) (*NotificacionesEnTiempoRealJob, error) {
-	if deps.DB == nil {
-		return nil, fmt.Errorf("jobs.NewNotificacionesEnTiempoRealJob: %w: deps.DB is required", scheduler.ErrInvalidInput)
+	if deps.Shifts == nil {
+		return nil, fmt.Errorf("jobs.NewNotificacionesEnTiempoRealJob: %w: deps.Shifts is required", scheduler.ErrInvalidInput)
 	}
 	if deps.FCM == nil {
 		return nil, fmt.Errorf("jobs.NewNotificacionesEnTiempoRealJob: %w: deps.FCM is required", scheduler.ErrInvalidInput)
@@ -270,7 +252,7 @@ func NewNotificacionesEnTiempoRealJob(deps NotificacionesJobDeps) (*Notificacion
 
 	return &NotificacionesEnTiempoRealJob{
 		deps:      deps,
-		db:        &pgxPoolAdapter{pool: deps.DB},
+		shifts:    deps.Shifts,
 		publisher: pub,
 		dedup:     make(map[dedupKey]time.Time),
 		lookahead: lookahead,
@@ -348,11 +330,10 @@ func (j *NotificacionesEnTiempoRealJob) Run(ctx context.Context) error {
 	// avoids the map growing unboundedly across long uptimes.
 	j.maybeSweepDedup(now)
 
-	rows, err := j.queryUpcomingShifts(ctx, now, windowEnd)
+	shifts, err := j.shifts.UpcomingShiftsInWindow(ctx, now, windowEnd)
 	if err != nil {
 		return fmt.Errorf("notificaciones.Run: query upcoming shifts: %w", err)
 	}
-	defer rows.Close()
 
 	// Capture the publisher once at the top of the run so a
 	// concurrent SetEventPublisher call from the wiring layer
@@ -364,98 +345,118 @@ func (j *NotificacionesEnTiempoRealJob) Run(ctx context.Context) error {
 		notifSent       int
 		devicesDeact    int
 	)
-	for rows.Next() {
+	for _, shift := range shifts {
 		shiftsInspected++
-
-		row, scanErr := scanUpcomingShift(rows)
-		if scanErr != nil {
-			j.deps.Logger.Inner().WarnContext(ctx, "notificaciones: row scan failed, skipping",
-				slog.String("error", scanErr.Error()),
-			)
-			continue
-		}
 
 		// Dedup check. Skip if we already notified this
 		// (empleado, shift) tuple within the poll grace window.
-		if j.isRecentlyNotified(row.EmpleadoID, row.ShiftID, now) {
+		shiftIDStr := shift.ShiftID.String()
+		if j.isRecentlyNotified(shift.EmpleadoID, shiftIDStr, now) {
 			j.deps.Logger.Inner().DebugContext(ctx, "notificaciones: skipping recently-notified pair",
-				slog.Int64("empleado_id", row.EmpleadoID),
-				slog.String("shift_id", row.ShiftID),
-				slog.String("tipo_evento", row.TipoEvento),
+				slog.Int64("empleado_id", shift.EmpleadoID),
+				slog.String("shift_id", shiftIDStr),
+				slog.String("tipo_evento", shift.TipoEvento),
 			)
 			continue
 		}
 
-		// Build the payload. The data map is delivered verbatim
-		// to the mobile app for routing (it carries the
-		// identifier triple the app uses to deep-link into the
-		// pre-shift screen).
-		payload := buildPayload(row)
+		// Fetch the active device list for the empleado. A
+		// query error is logged and the shift is skipped —
+		// the next tick will retry.
+		devices, derr := j.shifts.ActiveDevicesForEmpleado(ctx, shift.EmpleadoID)
+		if derr != nil {
+			j.deps.Logger.Inner().WarnContext(ctx, "notificaciones: device query failed; skipping shift",
+				slog.Int64("empleado_id", shift.EmpleadoID),
+				slog.String("shift_id", shiftIDStr),
+				slog.String("error", derr.Error()),
+			)
+			continue
+		}
+		if len(devices) == 0 {
+			// No active devices for this empleado. Log at
+			// debug level only — the per-shift summary
+			// line at the end of the run is the info-level
+			// record.
+			j.deps.Logger.Inner().DebugContext(ctx, "notificaciones: no active devices for shift",
+				slog.Int64("empleado_id", shift.EmpleadoID),
+				slog.String("shift_id", shiftIDStr),
+			)
+			continue
+		}
 
-		// FCM dispatch. We treat ErrFCMPermanentFailure as a
-		// normal lifecycle event: the device is gone, we mark
-		// it inactive and move on. Any other error is logged
-		// at warn level and we do NOT mark the dedup key — a
-		// transient failure on this tick may succeed on the
-		// next 5-minute tick.
-		_, sendErr := j.deps.FCM.Send(ctx, row.FCMToken, payload)
-		switch {
-		case sendErr == nil:
-			notifSent++
-		case errors.Is(sendErr, service.ErrFCMPermanentFailure):
-			if derr := j.deactivateDevice(ctx, row.DeviceID); derr != nil {
-				j.deps.Logger.Inner().WarnContext(ctx, "notificaciones: failed to deactivate device after permanent FCM failure",
-					slog.String("device_id_prefix", redactDeviceIDPrefix(row.DeviceID)),
-					slog.String("fcm_error", sendErr.Error()),
-					slog.String("deactivate_error", derr.Error()),
+		for _, device := range devices {
+			// Build the payload. The data map is delivered
+			// verbatim to the mobile app for routing (it
+			// carries the identifier triple the app uses
+			// to deep-link into the pre-shift screen).
+			payload := buildPayload(shift, device)
+
+			// FCM dispatch. We treat ErrFCMPermanentFailure
+			// as a normal lifecycle event: the device is
+			// gone, we mark it inactive and move on. Any
+			// other error is logged at warn level and we
+			// do NOT mark the dedup key — a transient
+			// failure on this tick may succeed on the next
+			// 5-minute tick.
+			_, sendErr := j.deps.FCM.Send(ctx, device.FCMToken, payload)
+			switch {
+			case sendErr == nil:
+				notifSent++
+			case errors.Is(sendErr, service.ErrFCMPermanentFailure):
+				if derr := j.deactivateDevice(ctx, device.ID); derr != nil {
+					j.deps.Logger.Inner().WarnContext(ctx, "notificaciones: failed to deactivate device after permanent FCM failure",
+						slog.String("device_id_prefix", redactDeviceIDPrefix(device.ID.String())),
+						slog.String("fcm_error", sendErr.Error()),
+						slog.String("deactivate_error", derr.Error()),
+					)
+				} else {
+					devicesDeact++
+					j.deps.Logger.Inner().InfoContext(ctx, "notificaciones: device deactivated after permanent FCM failure",
+						slog.String("device_id_prefix", redactDeviceIDPrefix(device.ID.String())),
+						slog.Int64("empleado_id", shift.EmpleadoID),
+					)
+				}
+			default:
+				// Transient failure: do NOT mark the
+				// dedup key. The next 5-minute tick will
+				// retry.
+				j.deps.Logger.Inner().WarnContext(ctx, "notificaciones: FCM send failed (transient), will retry next tick",
+					slog.Int64("empleado_id", shift.EmpleadoID),
+					slog.String("shift_id", shiftIDStr),
+					slog.String("fcm_token_prefix", redactToken(device.FCMToken)),
+					slog.String("error", sendErr.Error()),
 				)
-			} else {
-				devicesDeact++
-				j.deps.Logger.Inner().InfoContext(ctx, "notificaciones: device deactivated after permanent FCM failure",
-					slog.String("device_id_prefix", redactDeviceIDPrefix(row.DeviceID)),
-					slog.Int64("empleado_id", row.EmpleadoID),
+				continue
+			}
+
+			// Mark the (empleado, shift) pair as notified
+			// BEFORE the publisher call. Even if the
+			// publisher fails, the user-facing push has
+			// already been delivered, and retrying the
+			// publisher on the next tick would produce a
+			// duplicate alert in the Notificaciones
+			// service.
+			j.markNotified(shift.EmpleadoID, shiftIDStr, now)
+
+			// Best-effort event publication. The
+			// Notificaciones service is a downstream
+			// correlation log; a failed publish is logged
+			// but does not fail the run.
+			evt := events.PreShiftAlertEvent{
+				AlertID:    uuid.New(),
+				EmpleadoID: shift.EmpleadoID,
+				FCMToken:   redactToken(device.FCMToken),
+				TipoEvento: shift.TipoEvento,
+				Timestamp:  now,
+			}
+			if perr := pub.PublishPreShiftAlert(ctx, evt); perr != nil {
+				j.deps.Logger.Inner().WarnContext(ctx, "notificaciones: pre-shift event publish failed",
+					slog.String("alerta_id_prefix", redactUUIDPrefix(evt.AlertID)),
+					slog.Int64("empleado_id", shift.EmpleadoID),
+					slog.String("error", perr.Error()),
 				)
 			}
-		default:
-			// Transient failure: do NOT mark the dedup key.
-			// The next 5-minute tick will retry.
-			j.deps.Logger.Inner().WarnContext(ctx, "notificaciones: FCM send failed (transient), will retry next tick",
-				slog.Int64("empleado_id", row.EmpleadoID),
-				slog.String("shift_id", row.ShiftID),
-				slog.String("fcm_token_prefix", redactToken(row.FCMToken)),
-				slog.String("error", sendErr.Error()),
-			)
-			continue
 		}
-
-		// Mark the (empleado, shift) pair as notified BEFORE
-		// the publisher call. Even if the publisher fails, the
-		// user-facing push has already been delivered, and
-		// retrying the publisher on the next tick would
-		// produce a duplicate alert in the Notificaciones
-		// service.
-		j.markNotified(row.EmpleadoID, row.ShiftID, now)
-
-		// Best-effort event publication. The Notificaciones
-		// service is a downstream correlation log; a failed
-		// publish is logged but does not fail the run.
-		evt := events.PreShiftAlertEvent{
-			AlertID:    uuid.New(),
-			EmpleadoID: row.EmpleadoID,
-			FCMToken:   redactToken(row.FCMToken),
-			TipoEvento: row.TipoEvento,
-			Timestamp:  now,
-		}
-		if perr := pub.PublishPreShiftAlert(ctx, evt); perr != nil {
-			j.deps.Logger.Inner().WarnContext(ctx, "notificaciones: pre-shift event publish failed",
-				slog.String("alerta_id_prefix", redactUUIDPrefix(evt.AlertID)),
-				slog.Int64("empleado_id", row.EmpleadoID),
-				slog.String("error", perr.Error()),
-			)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("notificaciones.Run: rows iteration: %w", err)
 	}
 
 	// End-of-run summary line. The single info-level record
@@ -482,104 +483,25 @@ func (j *NotificacionesEnTiempoRealJob) Run(ctx context.Context) error {
 }
 
 // ---------------------------------------------------------------------------
-// SQL — single prepared statement for the upcoming-shifts window.
+// Payload + helpers — moved out of the SQL block (the SQL now
+// lives in shift_repository_pg.go).
 // ---------------------------------------------------------------------------
 
-// upcomingShiftsQuery returns the rows whose hora_inicio falls
-// in the half-open window (now, windowEnd]. Each row carries
-// the (shift, empleado, device) tuple the per-device loop needs.
-//
-// Why this shape
-// --------------
-//   - INNER JOIN on empleados_user_devices filtered to is_active =
-//     TRUE: we never notify a device the empleado has retired.
-//   - ORDER BY a.hora_inicio, a.id, d.id: deterministic scan order
-//     so the dedup cache keys are hit in chronological order.
-//   - All filters use $1, $2 positional parameters — no string
-//     interpolation, per the SQL-injection hardening policy.
-//
-// Schema assumptions (documented, not enforced)
-// ---------------------------------------------
-// The query assumes the following columns exist in the
-// operational schemas:
-//
-//	asignacion.asignacion_asignacion(
-//	    id            UUID PRIMARY KEY,
-//	    empleado_id   BIGINT NOT NULL,
-//	    estatus       INT    NOT NULL,        -- 1=Activo, 2=Baja
-//	    hora_inicio   TIMESTAMPTZ NOT NULL,
-//	    tipo_evento   VARCHAR NOT NULL         -- entrada|comida|salida
-//	)
-//
-//	empleados.empleados_user_devices(
-//	    id            UUID PRIMARY KEY,
-//	    empleado_id   BIGINT NOT NULL,
-//	    fcm_token     VARCHAR(255) NOT NULL,
-//	    is_active     BOOLEAN NOT NULL DEFAULT TRUE
-//	)
-//
-// These columns match the spec section "Datos" for the
-// Asignacion and Empleados services. If a future migration
-// renames them the job's tests will catch it at the SQL layer.
-const upcomingShiftsQuery = `
-SELECT
-    a.id,
-    a.empleado_id,
-    a.tipo_evento,
-    d.id,
-    d.fcm_token
-FROM asignacion.asignacion_asignacion AS a
-INNER JOIN empleados.empleados_user_devices AS d
-    ON d.empleado_id = a.empleado_id
-   AND d.is_active = TRUE
-WHERE a.estatus = 1
-  AND a.hora_inicio > $1
-  AND a.hora_inicio <= $2
-ORDER BY a.hora_inicio, a.id, d.id
-`
-
-// upcomingShiftRow is the row shape produced by upcomingShiftsQuery.
-type upcomingShiftRow struct {
-	ShiftID    string // UUID scanned as text so it is cheap to log
-	EmpleadoID int64
-	TipoEvento string
-	DeviceID   string // UUID scanned as text
-	FCMToken   string
-}
-
-// queryUpcomingShifts runs the prepared statement with the
-// half-open window (now, windowEnd] and returns the rows iterator.
-func (j *NotificacionesEnTiempoRealJob) queryUpcomingShifts(ctx context.Context, now, windowEnd time.Time) (pgx.Rows, error) {
-	return j.db.Query(ctx, upcomingShiftsQuery, now, windowEnd)
-}
-
-// scanUpcomingShift pulls a single row out of the iterator into
-// an upcomingShiftRow. The UUIDs are scanned into strings to keep
-// the call site free of uuid-package import noise and to make the
-// dedup map keys printable.
-func scanUpcomingShift(rows pgx.Rows) (upcomingShiftRow, error) {
-	var r upcomingShiftRow
-	err := rows.Scan(&r.ShiftID, &r.EmpleadoID, &r.TipoEvento, &r.DeviceID, &r.FCMToken)
-	if err != nil {
-		return upcomingShiftRow{}, fmt.Errorf("scan upcoming shift: %w", err)
-	}
-	return r, nil
-}
-
-// buildPayload turns an upcomingShiftRow into the FCM payload the
-// mobile app consumes. Title and Body match the Gherkin scenario
-// 1 expected message ("Recuerda que tu inicio de turno es pronto").
-// The Data map is consumed verbatim by the mobile app to deep-link
-// into the pre-shift screen; shift_id / tipo_evento / empleado_id
-// are the identifier triple it routes on.
-func buildPayload(row upcomingShiftRow) service.NotificationPayload {
+// buildPayload turns an (UpcomingShift, Device) pair into the
+// FCM payload the mobile app consumes. Title and Body match
+// the Gherkin scenario 1 expected message ("Recuerda que tu
+// inicio de turno es pronto"). The Data map is consumed
+// verbatim by the mobile app to deep-link into the pre-shift
+// screen; shift_id / tipo_evento / empleado_id are the
+// identifier triple it routes on.
+func buildPayload(shift UpcomingShift, device Device) service.NotificationPayload {
 	return service.NotificationPayload{
 		Title: "Recordatorio de turno",
 		Body:  "Recuerda que tu inicio de turno es pronto",
 		Data: map[string]string{
-			"shift_id":    row.ShiftID,
-			"tipo_evento": row.TipoEvento,
-			"empleado_id": fmt.Sprintf("%d", row.EmpleadoID),
+			"shift_id":    shift.ShiftID.String(),
+			"tipo_evento": shift.TipoEvento,
+			"empleado_id": fmt.Sprintf("%d", shift.EmpleadoID),
 		},
 	}
 }
@@ -587,29 +509,17 @@ func buildPayload(row upcomingShiftRow) service.NotificationPayload {
 // ---------------------------------------------------------------------------
 // Device deactivation — on permanent FCM failure (unregistered
 // token, sender ID mismatch, etc.) we mark the device row inactive
-// so the next tick's INNER JOIN filter drops it.
+// so the next tick's ActiveDevicesForEmpleado filter drops it.
 // ---------------------------------------------------------------------------
 
-const deactivateDeviceQuery = `
-UPDATE empleados.empleados_user_devices
-SET is_active = FALSE,
-    updated_at = $2
-WHERE id = $1
-  AND is_active = TRUE
-`
-
 // deactivateDevice flips is_active to FALSE for the given device
-// id. The WHERE clause preserves the previous value so the UPDATE
-// is a no-op (and the row is left untouched) when the device has
-// already been deactivated. The error returned is wrapped with
-// %w so callers can errors.Is on the underlying pgx error.
-func (j *NotificacionesEnTiempoRealJob) deactivateDevice(ctx context.Context, deviceID string) error {
-	deviceUUID, err := uuid.Parse(deviceID)
-	if err != nil {
-		return fmt.Errorf("notificaciones.deactivateDevice: parse device_id: %w", err)
-	}
-	_, err = j.db.Exec(ctx, deactivateDeviceQuery, deviceUUID, time.Now().UTC())
-	if err != nil {
+// id. The repository's WHERE clause preserves the previous value
+// so the UPDATE is a no-op (and the row is left untouched) when
+// the device has already been deactivated. The error returned is
+// wrapped with %w so callers can errors.Is on the underlying pgx
+// error class.
+func (j *NotificacionesEnTiempoRealJob) deactivateDevice(ctx context.Context, deviceID uuid.UUID) error {
+	if err := j.shifts.DeactivateDevice(ctx, deviceID, time.Now().UTC()); err != nil {
 		return fmt.Errorf("notificaciones.deactivateDevice: %w", err)
 	}
 	return nil

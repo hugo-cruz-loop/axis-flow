@@ -111,7 +111,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ---------------------------------------------------------------------------
@@ -146,13 +145,11 @@ const motivoInasistenciasConsecutivas = "inasistencias_consecutivas"
 // estatusInactivo is the target value written to
 // empleados_empleado.estatus. Matches the Gherkin scenario 2
 // expectation ("estatus del empleado "Juan" a "Inactivo" (4)").
+// The same constant is duplicated in
+// `employee_repository_pg.go` (where the SQL actually uses it)
+// because the two files were authored independently and the
+// duplication makes the SQL file self-contained.
 const estatusInactivo = 4
-
-// identityStatusInactivo is the value written to
-// users.identity_users.status when the associated identity is
-// revoked. The values are taken from the V1 CHECK constraint on
-// users.identity_users.status.
-const identityStatusInactivo = "INACTIVE"
 
 // Default values. Exposed as package-level vars so tests can
 // tweak them in-place before constructing the job.
@@ -183,36 +180,15 @@ var (
 )
 
 // ---------------------------------------------------------------------------
-// DB abstraction — same pattern as notificaciones_en_tiempo_real.go.
+// DB abstraction — replaced by EmployeeRepository +
+// EmployeeTxFactory (PR 5B-ii). The `inactivaDB` interface and
+// the `inactivaPoolAdapter` lived here from PR 3B-ii; they are
+// removed because the job now talks to PostgreSQL exclusively
+// through the typed EmployeeRepository contract. The pgx
+// implementation is in `employee_repository_pg.go` and the
+// wiring in `cmd/server/scheduler_wiring.go` constructs the
+// repo + factory and passes them to the constructor.
 // ---------------------------------------------------------------------------
-
-// inactivaDB abstracts the pgx surface used by the job. The
-// concrete implementation is the *pgxpool.Pool adapter; tests may
-// inject a transaction-bound runner or a fake. Defined as a
-// local interface so the job's surface stays minimal — the
-// runner only needs Query/QueryRow/Exec for the read paths and
-// BeginTx for the per-empleado transactional envelope.
-type inactivaDB interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-	Begin(ctx context.Context) (pgx.Tx, error)
-}
-
-type inactivaPoolAdapter struct{ pool *pgxpool.Pool }
-
-func (a *inactivaPoolAdapter) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	return a.pool.QueryRow(ctx, sql, args...)
-}
-func (a *inactivaPoolAdapter) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	return a.pool.Query(ctx, sql, args...)
-}
-func (a *inactivaPoolAdapter) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	return a.pool.Exec(ctx, sql, args...)
-}
-func (a *inactivaPoolAdapter) Begin(ctx context.Context) (pgx.Tx, error) {
-	return a.pool.Begin(ctx)
-}
 
 // ---------------------------------------------------------------------------
 // Configuration knobs.
@@ -227,11 +203,15 @@ func (a *inactivaPoolAdapter) Begin(ctx context.Context) (pgx.Tx, error) {
 // ones its Run method uses so the type remains self-contained
 // and testable in isolation.
 type InactivaEmpleadoJobDeps struct {
-	// DB is the PostgreSQL pool used to read the candidate
-	// employees and to perform the transactional empleado
-	// status update + identity revoke + outbox insert.
+	// Emps is the employee repository used to read the
+	// per-empresa candidate list and to perform the
+	// transactional empleado status update + identity revoke
+	// inside the deactivation envelope. Required.
+	Emps EmployeeRepository
+	// TxFactory opens the per-empleado transaction that wraps
+	// the status update, identity revoke, and outbox insert.
 	// Required.
-	DB *pgxpool.Pool
+	TxFactory EmployeeTxFactory
 	// Parametrizacion is the HTTP client used to read the
 	// per-company inactivity threshold. The client returns
 	// service.ErrParametrizacionBadRequest on permanent 4xx
@@ -308,9 +288,12 @@ type InactivaEmpleadoJob struct {
 	// its work.
 	deps InactivaEmpleadoJobDeps
 
-	// db is the pgx adapter. Built from deps.DB at construction
-	// time.
-	db inactivaDB
+	// emps is the employee repository. Built from deps.Emps
+	// at construction time.
+	emps EmployeeRepository
+	// txFactory opens the per-empleado transaction. Built
+	// from deps.TxFactory at construction time.
+	txFactory EmployeeTxFactory
 
 	// publisher is the event publisher snapshot used by future
 	// direct-publishing paths. Defaults to a noop; can be
@@ -334,8 +317,11 @@ type InactivaEmpleadoJob struct {
 // field returns an error so the wiring layer fails fast at
 // startup rather than at the first cron tick.
 func NewInactivaEmpleadoJob(deps InactivaEmpleadoJobDeps) (*InactivaEmpleadoJob, error) {
-	if deps.DB == nil {
-		return nil, fmt.Errorf("jobs.NewInactivaEmpleadoJob: %w: deps.DB is required", scheduler.ErrInvalidInput)
+	if deps.Emps == nil {
+		return nil, fmt.Errorf("jobs.NewInactivaEmpleadoJob: %w: deps.Emps is required", scheduler.ErrInvalidInput)
+	}
+	if deps.TxFactory == nil {
+		return nil, fmt.Errorf("jobs.NewInactivaEmpleadoJob: %w: deps.TxFactory is required", scheduler.ErrInvalidInput)
 	}
 	if deps.Parametrizacion == nil {
 		return nil, fmt.Errorf("jobs.NewInactivaEmpleadoJob: %w: deps.Parametrizacion is required", scheduler.ErrInvalidInput)
@@ -359,7 +345,8 @@ func NewInactivaEmpleadoJob(deps InactivaEmpleadoJobDeps) (*InactivaEmpleadoJob,
 
 	return &InactivaEmpleadoJob{
 		deps:        deps,
-		db:          &inactivaPoolAdapter{pool: deps.DB},
+		emps:        deps.Emps,
+		txFactory:   deps.TxFactory,
 		publisher:   pub,
 		maxEmpresas: maxEmpresas,
 	}, nil
@@ -440,7 +427,7 @@ func (j *InactivaEmpleadoJob) Run(ctx context.Context) error {
 	// kept for symmetry with the notificaciones job.
 	_ = j.currentPublisher()
 
-	empresas, err := j.queryActiveEmpresas(ctx, j.maxEmpresas)
+	empresas, err := j.emps.EmpresasWithUnjustifiedStreaks(ctx, j.maxEmpresas)
 	if err != nil {
 		return fmt.Errorf("inactiva_empleado.Run: query active empresas: %w", err)
 	}
@@ -489,7 +476,7 @@ func (j *InactivaEmpleadoJob) Run(ctx context.Context) error {
 			continue
 		}
 
-		candidates, err := j.queryCandidates(ctx, empresaID, threshold)
+		candidates, err := j.emps.EmpleadosWithUnjustifiedStreakAtLeast(ctx, empresaID, threshold)
 		if err != nil {
 			j.deps.Logger.Inner().WarnContext(ctx, "inactiva_empleado: candidate query failed; skipping empresa",
 				slog.Int64("empresa_id", empresaID),
@@ -586,176 +573,11 @@ func (j *InactivaEmpleadoJob) Run(ctx context.Context) error {
 }
 
 // ---------------------------------------------------------------------------
-// SQL — prepared statements for the read and write paths.
+// SQL — moved to employee_repository_pg.go (PR 5B-ii). See
+// that file for the canonical prepared statements and the
+// schema assumptions they encode. The job talks to PostgreSQL
+// exclusively through the typed EmployeeRepository contract.
 // ---------------------------------------------------------------------------
-
-// queryActiveEmpresasSQL returns the distinct empresa_id list
-// that has at least one active (estatus != 4) employee with at
-// least one unjustified inasistencia. The result is capped by
-// the LIMIT (the caller substitutes j.maxEmpresas at execution
-// time). The defensive bound protects the 02:00 daily window
-// from ballooning when the empleados service grows the tenant
-// population.
-//
-// Why this shape
-// --------------
-//   - DISTINCT empresa_id keeps the downstream per-empresa loop
-//     short (one parametrizacion call per tenant, not per
-//     employee).
-//   - INNER JOIN on empleados_inasistencia filtered to
-//     justificada = FALSE: we never consider a tenant whose
-//     only outstanding absences are justified.
-//   - INNER JOIN on empleados_empleado filtered to estatus != 4:
-//     we never re-process a tenant whose employees are already
-//     inactive.
-//   - ORDER BY empresa_id: deterministic scan order so the
-//     per-empresa summary log lines are reproducible across
-//     runs and across replicas.
-const queryActiveEmpresasSQL = `
-SELECT DISTINCT e.empresa_id
-FROM empleados.empleados_empleado AS e
-INNER JOIN empleados.empleados_inasistencia AS i
-    ON i.empleado_id = e.id
-WHERE i.justificada = FALSE
-  AND e.estatus <> 4
-ORDER BY e.empresa_id
-LIMIT $1
-`
-
-// queryCandidatesSQL returns the empleado_id list inside the
-// given empresa whose most recent `threshold` inasistencias are
-// ALL unjustified. The shape uses a correlated subquery that
-// orders the inasistencias by fecha DESC and caps the window
-// at `threshold` rows; the outer COUNT is then compared against
-// `threshold` to detect a clean streak.
-//
-// Why a correlated subquery and not a window function
-// ---------------------------------------------------
-// A window function (ROW_NUMBER() OVER (PARTITION BY empleado_id
-// ORDER BY fecha DESC)) would scale better but requires a
-// per-empresa scan over the inasistencias. The current
-// production tenant count is low (tens of empleados per
-// empresa) so the correlated-subquery cost is negligible. A
-// follow-up optimisation can collapse the per-empleado loop
-// into a single window query once the empleados team ships a
-// streak view. See the TODO at the end of the runbook.
-//
-// The query is intentionally written with positional
-// parameters ($1 = empresa_id, $2 = threshold) — no string
-// interpolation, per the SQL-injection hardening policy.
-//
-// TODO: optimize to a single window query if the empleados team
-// introduces a streak view (e.g. empleados.v_streak_inasistencias).
-const queryCandidatesSQL = `
-SELECT e.id
-FROM empleados.empleados_empleado AS e
-WHERE e.empresa_id = $1
-  AND e.estatus <> 4
-  AND (
-    SELECT COUNT(*)
-    FROM (
-      SELECT i.fecha
-      FROM empleados.empleados_inasistencia AS i
-      WHERE i.empleado_id = e.id
-        AND i.justificada = FALSE
-      ORDER BY i.fecha DESC
-      LIMIT $2
-    ) AS ultimas
-  ) = $2
-ORDER BY e.id
-`
-
-// updateEmpleadoEstatusSQL flips estatus to 4 (Inactivo) for
-// the given empleado id, idempotently. The WHERE clause is the
-// idempotency guard: a row whose estatus is already 4 is left
-// untouched and the UPDATE returns 0 rows. The caller uses the
-// 0-row result to detect the "already inactive" case and skip
-// the identity revoke and outbox insert (no event for a no-op).
-//
-// The RETURNING id clause lets the caller confirm the row was
-// actually updated without a second round-trip; the id is
-// already known to the caller but the column is returned so
-// the future migration to RETURNING estatus is non-breaking.
-const updateEmpleadoEstatusSQL = `
-UPDATE empleados.empleados_empleado
-SET estatus = $2,
-    updated_at = $3
-WHERE id = $1
-  AND estatus <> 4
-RETURNING id
-`
-
-// revokeIdentitySQL flips the identity row to INACTIVE. The
-// query is a no-op (returns 0 rows) when the identity is
-// already INACTIVE / DELETED, when no identity is linked to
-// the empleado (a documented schema gap — see the file header),
-// or when the identity is in a terminal status that must not be
-// rolled back (LOCKED).
-//
-// The identity table name and the empleado link are documented
-// schema assumptions (see the file header). The query targets
-// the V1 table users.identity_users and the assumed `empleado_id`
-// column — when the empleados team ships the column the query
-// becomes a simple equality match; in the meantime a 0-row
-// result is treated as a non-fatal "no linked identity" case
-// and the outbox payload is still emitted so the downstream
-// HR dashboard can react.
-const revokeIdentitySQL = `
-UPDATE users.identity_users
-SET status = $2,
-    updated_at = $3
-WHERE empleado_id = $1
-  AND status NOT IN ($2, 'DELETED', 'LOCKED')
-RETURNING id
-`
-
-// queryActiveEmpresas runs the prepared statement and returns
-// the distinct empresa id list. The cap is passed in to keep
-// the SQL static (the caller's maxEmpresas is the LIMIT).
-func (j *InactivaEmpleadoJob) queryActiveEmpresas(ctx context.Context, maxEmpresas int) ([]int64, error) {
-	rows, err := j.db.Query(ctx, queryActiveEmpresasSQL, maxEmpresas)
-	if err != nil {
-		return nil, fmt.Errorf("queryActiveEmpresas: %w", err)
-	}
-	defer rows.Close()
-
-	out := make([]int64, 0, 16)
-	for rows.Next() {
-		var id int64
-		if scanErr := rows.Scan(&id); scanErr != nil {
-			return nil, fmt.Errorf("queryActiveEmpresas scan: %w", scanErr)
-		}
-		out = append(out, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("queryActiveEmpresas rows: %w", err)
-	}
-	return out, nil
-}
-
-// queryCandidates runs the per-empresa candidate query and
-// returns the empleado id list. The threshold is passed in so
-// the SQL stays static.
-func (j *InactivaEmpleadoJob) queryCandidates(ctx context.Context, empresaID int64, threshold int) ([]int64, error) {
-	rows, err := j.db.Query(ctx, queryCandidatesSQL, empresaID, threshold)
-	if err != nil {
-		return nil, fmt.Errorf("queryCandidates: %w", err)
-	}
-	defer rows.Close()
-
-	out := make([]int64, 0, 16)
-	for rows.Next() {
-		var id int64
-		if scanErr := rows.Scan(&id); scanErr != nil {
-			return nil, fmt.Errorf("queryCandidates scan: %w", scanErr)
-		}
-		out = append(out, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("queryCandidates rows: %w", err)
-	}
-	return out, nil
-}
 
 // ---------------------------------------------------------------------------
 // Transactional envelope — update + revoke + outbox, in one tx.
@@ -771,31 +593,37 @@ func (j *InactivaEmpleadoJob) queryCandidates(ctx context.Context, empresaID int
 // wrapped with %w. The first return value is true when the
 // empleado status was actually flipped (i.e. a new
 // deactivation happened); false when the row was already
-// inactive (the identity revoke and outbox insert are still
-// attempted as a defence-in-depth measure, but no log line is
-// emitted for the candidate).
+// inactive (the identity revoke and outbox insert are NOT
+// attempted — the outbox event only fires for real
+// deactivations).
+//
+// The implementation uses the EmployeeRepository contract
+// (PR 5B-ii) instead of a raw pgx.Tx. The contract is what the
+// in-package OutboxWriter accepts (it takes the new Tx
+// interface), so the per-empleado envelope stays a pure
+// orchestration of repository calls + outbox insert + commit.
 func (j *InactivaEmpleadoJob) deactivateEmpleado(
 	ctx context.Context,
 	empleadoID, empresaID int64,
 	threshold int,
 	now time.Time,
 ) (bool, error) {
-	tx, err := j.db.Begin(ctx)
+	tx, _, err := j.txFactory.BeginTx(ctx)
 	if err != nil {
 		return false, fmt.Errorf("deactivateEmpleado begin: %w", err)
 	}
 	// rollbackUnlessCommitted runs the ROLLBACK if the
 	// transaction has not been committed by the time the
-	// deferred function fires. pgx's Tx is safe to call
-	// Rollback on after Commit; the helper is a no-op in that
-	// case.
+	// deferred function fires. The pgxTx adapter swallows
+	// pgx.ErrTxClosed so a double-Rollback (after a successful
+	// Commit) is a no-op.
 	committed := false
 	defer func() {
 		if !committed {
 			// Best-effort rollback. A failure here is
 			// logged but not surfaced — the original
 			// error is the one the caller cares about.
-			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+			if rbErr := tx.Rollback(ctx); rbErr != nil {
 				j.deps.Logger.Inner().WarnContext(ctx, "inactiva_empleado: rollback failed after deactivation error",
 					slog.Int64("empresa_id", empresaID),
 					slog.Int64("empleado_id", empleadoID),
@@ -808,18 +636,30 @@ func (j *InactivaEmpleadoJob) deactivateEmpleado(
 	// 1. Update empleado status. The WHERE estatus <> 4 guard
 	// is the idempotency contract — re-running on the same
 	// day must not re-deactivate an already-inactive employee.
-	var updatedID int64
-	err = tx.QueryRow(ctx, updateEmpleadoEstatusSQL, empleadoID, estatusInactivo, now).Scan(&updatedID)
+	// The repository returns (false, nil) when the guard
+	// matched 0 rows so the caller can short-circuit the
+	// outbox event.
+	updated, err := j.emps.DeactivateEmpleadoTx(ctx, tx, empleadoID, now)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Already inactive (or the row was deleted between
 		// the candidate query and the update). The
 		// transactional envelope is still rolled back —
 		// there is nothing to commit and no outbox event
-		// to emit.
+		// to emit. (The repository's idempotency contract
+		// does not return pgx.ErrNoRows, but the switch
+		// arm is kept for defence in depth: a future
+		// implementation that returns the sentinel still
+		// produces the correct "already inactive"
+		// outcome.)
 		return false, nil
 	case err != nil:
 		return false, fmt.Errorf("deactivateEmpleado update empleado: %w", err)
+	case !updated:
+		// The repository's idempotency contract: 0 rows
+		// updated → the row was already inactive. Same
+		// short-circuit as the ErrNoRows arm above.
+		return false, nil
 	}
 
 	// 2. Revoke the linked identity. A 0-row result is
@@ -827,25 +667,8 @@ func (j *InactivaEmpleadoJob) deactivateEmpleado(
 	// schema gap — see the file header) or it may already
 	// be in a terminal status. The outbox event is still
 	// emitted so the HR dashboard can react.
-	var revokedIdentity string
-	err = tx.QueryRow(ctx, revokeIdentitySQL, empleadoID, identityStatusInactivo, now).Scan(&revokedIdentity)
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		// No linked identity. Log at debug level and
-		// continue — the deactivation is the primary
-		// business state change.
-		j.deps.Logger.Inner().DebugContext(ctx, "inactiva_empleado: no identity row to revoke (schema gap or terminal status)",
-			slog.Int64("empresa_id", empresaID),
-			slog.Int64("empleado_id", empleadoID),
-		)
-	case err != nil:
+	if err := j.emps.RevokeIdentityTx(ctx, tx, empleadoID, now); err != nil {
 		return false, fmt.Errorf("deactivateEmpleado revoke identity: %w", err)
-	default:
-		j.deps.Logger.Inner().InfoContext(ctx, "inactiva_empleado: identity revoked",
-			slog.Int64("empresa_id", empresaID),
-			slog.Int64("empleado_id", empleadoID),
-			slog.String("identity_id_prefix", redactUUIDPrefixString(revokedIdentity)),
-		)
 	}
 
 	// 3. Insert the outbox row. The payload is the

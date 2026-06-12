@@ -30,16 +30,24 @@
 //
 // Transactional contract
 // =======================
-// The interface accepts a *pgx.Tx so the writer participates in
-// the caller's transaction. The decision to thread the tx through
-// the interface (rather than hold a pool inside the writer) is
-// documented here because it deviates from a typical
-// "ctx-only" pattern: we need the outbox row to be in the same
-// atomicity envelope as the empleado status update and the
-// identity revoke. A writer that owns its own transaction would
-// force those three operations into separate transactions and
-// re-introduce the dual-write problem the outbox pattern is
-// designed to solve.
+// The interface accepts a Tx (the minimal Commit/Rollback
+// abstraction defined in employee_repository.go) so the writer
+// participates in the caller's transaction. The decision to
+// thread the tx through the interface (rather than hold a
+// pool inside the writer) is documented here because it
+// deviates from a typical "ctx-only" pattern: we need the
+// outbox row to be in the same atomicity envelope as the
+// empleado status update and the identity revoke. A writer
+// that owns its own transaction would force those three
+// operations into separate transactions and re-introduce the
+// dual-write problem the outbox pattern is designed to solve.
+//
+// The interface takes the `Tx` contract instead of the
+// concrete `pgx.Tx` so the inactiva_empleado job can drive
+// the envelope through the EmployeeRepository abstraction
+// (PR 5B-ii). The production pgx-backed implementation
+// receives the underlying pgx.Tx through the Tx wrapper; the
+// noop implementation ignores the argument.
 //
 // The noop default (NewNoopOutboxWriter) returns nil without
 // touching the transaction. The real implementation will land in
@@ -50,8 +58,6 @@ package jobs
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5"
 )
 
 // ---------------------------------------------------------------------------
@@ -87,7 +93,7 @@ type OutboxWriter interface {
 	// unwrapped so the caller's %w wrapping makes the chain
 	// traceable in the scheduler_jobs_failed_total error_class
 	// label.
-	Insert(ctx context.Context, tx pgx.Tx, eventType string, aggregateID int64, payload []byte) error
+	Insert(ctx context.Context, tx Tx, eventType string, aggregateID int64, payload []byte) error
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +120,6 @@ func NewNoopOutboxWriter() OutboxWriter {
 
 // Insert is a no-op that always returns nil. See the type-level
 // doc comment for the rationale.
-func (n *noopOutboxWriter) Insert(_ context.Context, _ pgx.Tx, _ string, _ int64, _ []byte) error {
+func (n *noopOutboxWriter) Insert(_ context.Context, _ Tx, _ string, _ int64, _ []byte) error {
 	return nil
 }
